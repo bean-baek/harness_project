@@ -13,7 +13,7 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 | | |
 |---|---|
 | **결과물이다** | `harness/` — 에이전트 실행·검증·중단·재개를 관리하는 운영 계층 |
-| **결과물이다** | `troubleshooting/` — 무인 운영에서 실제로 터진 실패 모드 11건의 재현·원인·수정·검증 기록 |
+| **결과물이다** | `troubleshooting/` — 무인 운영에서 실제로 터진 실패 모드 12건의 재현·원인·수정·검증 기록 |
 | **결과물이 아니다** | `web_target/` — 투두 앱. 하네스를 시험하기 위한 **피험체**이자 벤치마크 과제 |
 
 `web_target` 의 기능 75개(`features.json`)는 목표가 아니라 **측정 수단**이다.
@@ -265,8 +265,17 @@ python repro_ts010.py                      # 토큰 없는 모드 의존성 독�
 cd web_target && npx jest . --no-coverage  # 대상 앱 스위트                   27/27
 ```
 
+```bash
+cd web_target
+npm run lint       # exit 0
+npm run build      # exit 0 — dist/ 생성
+npm test           # 42/42 통과, 커버리지 44% < 임계 80% 이므로 exit 1
+npm run test:e2e   # 18개 수집됨. 실행은 npx playwright install 필요
+```
+
 `npm test` 는 커버리지 임계값(80%) 때문에 테스트가 전부 통과해도 exit 1 이다.
 **테스트 실패와 커버리지 미달을 구분할 것** — 게이트와 같은 기준으로 보려면 `--no-coverage`.
+E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jest 만 실행한다 (TS-012).
 
 ---
 
@@ -333,8 +342,8 @@ cd web_target && npx jest . --no-coverage  # 대상 앱 스위트               
 - **알려진 제약**:
   - Gemini 프로젝트가 월 지출 한도에 걸려 있다 → 해제하거나 `gemini-2.5-flash` 로 재실행.
   - 체크포인터 영속 백엔드 미설치 → 프로세스 간 재개 불가.
-  - `tsc --noEmit` 오류 5건 (대상 앱의 `api.ts` 의 `import.meta.env` 타입, `handlers.ts` 의 msw 미설치).
-  - 커버리지 37% vs 설정 임계 80%.
+  - 커버리지 44% vs 설정 임계 80% (`npm test` 가 이 때문에 exit 1).
+  - `npm run test:e2e` 는 설정은 고쳐졌으나 Playwright 브라우저 바이너리 미설치로 실행 불가.
 - **측정 아이디어**: 같은 75개 기능을 모델/프롬프트만 바꿔 재실행하면
   기능당 시도 횟수·비용·실패 유형 분포를 비교할 수 있다. 증거 게이트가 켜져 있어야
   그 수치가 의미를 갖는다.

@@ -129,7 +129,7 @@ describe('UserMenu', () => {
       isAuthenticated: true,
       logout: jest.fn(),
     });
-    const { container } = render(
+    render(
       <BrowserRouter>
         <div data-testid="outside">Outside Area</div>
         <UserMenu />
