@@ -27,6 +27,7 @@ harness/cli.py
   python -m harness.cli verify F-004          게이트 판정만 (플래그 변경 없음)
   python -m harness.cli mark F-004            게이트 통과 시에만 통과로 기록
   python -m harness.cli unmark F-004          미완성으로 되돌림 (증거 제거)
+  python -m harness.cli tags                  증거 태그가 옳은 기능을 가리키는지 검사
   python -m harness.cli report                판별력 + 실행 로그 측정
   python -m harness.cli audit                 현재 통과 플래그 전수 재검증
 """
@@ -192,6 +193,17 @@ def cmd_audit(args) -> int:
     return 1 if bad else 0
 
 
+def cmd_tags(args) -> int:
+    """증거 태그가 옳은 기능을 가리키는지 검사한다 (보고만, 차단 없음)."""
+    from harness.tags import format_tag_report, lint_tags, scan_tags
+
+    features = load_features(args.project)
+    print(format_tag_report(args.project, features))
+    issues = lint_tags(args.project, features, refs=scan_tags(args.project))
+    # unknown-id 는 명백한 오류이므로 종료 코드로 알린다. 나머지는 보고만 한다.
+    return 1 if any(i.kind == "unknown-id" for i in issues) else 0
+
+
 def cmd_report(args) -> int:
     from harness.metrics import (
         discrimination_report,
@@ -251,6 +263,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("audit", parents=[common], help="통과 플래그 전수 재검증")
     p.add_argument("--level", choices=("suite", "feature", "step"), default=None)
     p.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser("tags", parents=[common], help="증거 태그가 옳은 기능을 가리키는지 검사")
+    p.set_defaults(func=cmd_tags)
 
     p = sub.add_parser("report", parents=[common], help="판별력 + 실행 로그 측정")
     p.add_argument("--log", default="./harness_runtime.log")

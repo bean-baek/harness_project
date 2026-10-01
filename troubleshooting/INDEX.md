@@ -17,3 +17,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-011](TS-011-auth-guard-race-and-open-redirect.md) | resolved | high | 라우트 가드가 isLoading을 무시해 새로고침마다 로그아웃 + ?redirect= 오픈 리다이렉트 | `web_target/src/components/ProtectedRoute.tsx` |
 | [TS-012](TS-012-declared-but-dead-commands.md) | resolved | high | package.json이 광고하는 명령 3개(lint/build/test:e2e)가 전부 동작하지 않았다 | `web_target/package.json` |
 | [TS-013](TS-013-unit-tests-cannot-verify-route-table.md) | resolved | high | 단위 테스트가 자기가 만든 라우트를 검증해 F-005가 실 브라우저에서 전혀 동작하지 않았다 | `web_target/src/routes.ts` |
+| [TS-014](TS-014-tag-points-at-wrong-feature.md) | resolved | high | 태그가 엉뚱한 기능을 가리켜도 게이트가 보지 못한다 — 피험체 결함은 어디까지 고치는가 | `harness/tags.py` |
