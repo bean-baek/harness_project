@@ -51,6 +51,13 @@ REQUIRE_TEST_EVIDENCE = os.environ.get(
     "HARNESS_REQUIRE_TEST_EVIDENCE", "true"
 ).lower() == "true"
 
+# ── 증거 수준 (TS-008) ───────────────────────────────────────────────────────
+#   suite   — 스위트 녹색만 (TS-006 동작, 하위 호환)
+#   feature — 스위트 녹색 + 기능 ID 를 인용하는 통과 테스트 1개 이상  (기본)
+#   step    — feature + 명세 steps 전부가 단계 태그 테스트로 덮일 때만 통과
+# 어느 수준이든 단계 커버리지는 측정해 features.json 에 기록한다.
+EVIDENCE_LEVEL = os.environ.get("HARNESS_EVIDENCE_LEVEL", "feature").lower()
+
 # ── 도구 타임아웃 (초) ────────────────────────────────────────────────────────
 TOOL_TIMEOUTS = {
     "bash_command": 60,

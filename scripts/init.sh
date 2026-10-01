@@ -38,7 +38,10 @@ for arg in "$@"; do
 done
 
 # ── 0. 작업 디렉토리 확인 ────────────────────────────────────────────────────
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 이 스크립트는 scripts/ 안에 있다 — 프로젝트 루트는 그 상위 디렉터리다.
+# (이전에는 scripts/ 자신을 루트로 잡아 web_target/requirements.txt 를 찾지 못하고
+#  모든 설치 단계를 조용히 건너뛰었다.)
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 log_info "프로젝트 루트: $PROJECT_ROOT"
 cd "$PROJECT_ROOT"
 
@@ -168,8 +171,8 @@ echo -e "${GREEN}═════════════════════
 echo -e "   프론트엔드:  ${BLUE}http://localhost:$DEV_PORT${NC}"
 [ -n "$API_PID" ] && echo -e "   API 서버:    ${BLUE}http://localhost:$API_PORT${NC}"
 echo -e "   프로젝트:    $PROJECT_ROOT"
-echo -e "   로그 파일:   $PROJECT_ROOT/gemini-progress.txt"
+echo -e "   로그 파일:   $PROJECT_ROOT/web_target/gemini-progress.txt"
 echo ""
 echo -e "${YELLOW}에이전트 세션 시작:${NC}"
-echo -e "   python main.py --task '기능명' --project ."
+echo -e "   python main.py --task '기능명' --project ./web_target"
 echo ""

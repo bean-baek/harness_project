@@ -120,9 +120,16 @@ P03_CODER = """
 ## 기능 구현 절차
 Step 1. <reasoning> 태그에서 설계와 UI/UX 컨셉을 한 단락으로 서술.
 Step 2. `write_file` 로 소스를 생성/수정. CSS·트랜지션을 반드시 포함.
-Step 3. `run_tests(project_root)` 또는 `bash_command("npm test", cwd=project_root)` 로 검증.
-Step 4. 실패 시: 같은 파일을 `write_file` 로 다시 고친다. 새 파일 탐색으로 도피하지 않는다.
+Step 3. **이 기능을 검증하는 테스트를 작성한다.** 테스트 이름에 기능 ID 를 반드시 넣는다:
+        `describe("F-004: 사용자가 로그아웃할 수 있다", ...)`
+        명세의 특정 단계를 검증하는 테스트에는 단계 번호까지 붙인다:
+        `test("F-004.5: 로그아웃 시 auth_token 이 삭제된다", ...)`
+        ID 가 없는 테스트는 **이 기능의 증거로 인정되지 않는다** (스위트가 녹색이어도 무의미).
+Step 4. `run_tests(project_root)` 로 검증. 실패 시 같은 파일을 `write_file` 로 고친다 —
+        새 파일 탐색으로 도피하지 않는다.
 Step 5. 통과하면 `update_features(project_root, feature_index, passes=True)` 로 상태 갱신.
+        이 도구는 **스스로 전체 스위트를 실행**하고, 기능 ID 태그가 붙은 통과 테스트가
+        하나도 없으면 거부한다. 거부되면 테스트 이름에 ID 를 넣었는지 먼저 확인한다.
 Step 6. `git_commit(project_root, "feat: {기능명}")` 으로 커밋.
 Step 7. `write_progress(project_root, "...")` 로 핸드오프 기록.
 
@@ -390,6 +397,12 @@ TOOL_DESCRIPTIONS = {
 사용 시점: 코드 변경 후 회귀 테스트.
 경고: 기존 통과 테스트가 실패하면 즉시 코드 변경을 롤백하십시오.
 실행 전 개발 서버가 실행 중인지 확인.""",
+
+    "update_features": """[STATEFUL] features.json 의 기능 통과 여부를 갱신합니다.
+passes=True 는 선언이 아니라 입증입니다 — 도구가 직접 전체 테스트 스위트를 실행하고,
+**해당 기능 ID 를 이름에 포함한 통과 테스트가 1개 이상** 있을 때만 반영됩니다.
+태그 규약: `describe("F-004: 설명", ...)`, 단계별은 `test("F-004.5: ...", ...)`.
+스위트가 녹색이어도 ID 태그가 없으면 거부됩니다. passes=False 는 증거 없이 허용됩니다.""",
 
     "bash": """[STATEFUL] 셸 명령어를 실행합니다.
 사용 시점: git 조작, 서버 시작, 빌드 실행, 패키지 설치.

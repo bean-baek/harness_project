@@ -23,6 +23,7 @@ from typing import Literal
 from langchain_core.tools import tool
 
 import config
+from harness.verify import run_jest, verify_feature
 
 
 # ── 도구 권한 계층 상수 ──────────────────────────────────────────────────────
@@ -151,79 +152,13 @@ def write_file(path: str, content: str) -> str:
     return f"[완료] {abs_path} ({len(content)} bytes)"
 
 
-def _jest_launcher(project_root: str) -> list[str] | None:
-    """jest 를 실행할 커맨드 접두사를 반환한다. 없으면 None.
-
-    Windows 주의 (TS-006): `subprocess.run(["npx", ...])` 는 shell=False 에서
-    `npx.cmd` 를 찾지 못해 항상 FileNotFoundError 를 던졌다 — 즉 run_tests 가
-    이 환경에서 한 번도 동작한 적이 없다. PATHEXT 를 처리하는 shutil.which 를 쓰고,
-    프로젝트 로컬 바이너리를 우선한다. test_path 가 에이전트 입력이므로
-    shell=True 문자열 보간은 쓰지 않는다 (명령 주입 방지).
-    """
-    # 절대 경로 필수: subprocess 가 cwd=project_root 로 전환하므로 상대 경로 런처는
-    # "지정된 경로를 찾을 수 없습니다" 로 실패한다.
-    bin_dir = Path(project_root).resolve() / "node_modules" / ".bin"
-    for name in ("jest.cmd", "jest.CMD", "jest"):
-        candidate = bin_dir / name
-        if candidate.is_file():
-            return [str(candidate)]
-
-    npx = shutil.which("npx")
-    if npx:
-        return [npx, "jest"]
-    return None
-
-
 def _run_jest(
     project_root: str,
     test_path: str = ".",
     coverage: bool = False,
 ) -> tuple[int | None, str]:
-    """Jest 를 실행하고 (종료코드, 출력) 을 반환한다.
-
-    종료코드 None = 테스트를 실행조차 못함 (타임아웃 / jest 없음).
-    `update_features` 의 증거 게이트와 `run_tests` 도구가 같은 경로를 공유하기 위해
-    @tool 데코레이터 밖의 평범한 함수로 분리했다 (TS-006).
-
-    주의: 커버리지 임계값(80%)은 테스트 통과와 별개 관심사다. 증거 게이트는
-    `coverage=False` 로 호출해 '테스트 통과' 만 판정한다 — 그렇지 않으면 커버리지
-    미달만으로 모든 기능이 영구 미완성으로 묶인다.
-    """
-    launcher = _jest_launcher(project_root)
-    if launcher is None:
-        return None, (
-            "[오류] jest 실행 파일을 찾을 수 없습니다. "
-            f"{project_root} 에서 npm install 을 먼저 실행하십시오."
-        )
-
-    flags = ["--no-coverage"] if not coverage else ["--coverage", "--coverageReporters=text"]
-    cmd = [*launcher, test_path, *flags]
-    timeout = config.TOOL_TIMEOUTS.get("run_tests", 120)
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-        return result.returncode, result.stdout + result.stderr
-    except subprocess.TimeoutExpired:
-        return None, f"[오류] 테스트 타임아웃 ({timeout}초)"
-    except FileNotFoundError:
-        return None, "[오류] Jest를 찾을 수 없습니다. npm install을 먼저 실행하십시오."
-
-
-def _summarize_jest(output: str) -> str:
-    """Jest 출력에서 'Tests:' / 'Test Suites:' 요약 줄만 뽑는다."""
-    lines = [
-        line.strip()
-        for line in output.splitlines()
-        if line.strip().startswith(("Tests:", "Test Suites:"))
-    ]
-    return " | ".join(lines) if lines else "(요약 줄 없음)"
+    """harness.verify.run_jest 위임 — jest 실행 로직은 verify 모듈이 소유한다 (TS-008)."""
+    return run_jest(project_root, test_path, coverage)
 
 
 @tool
@@ -336,9 +271,21 @@ def update_features(
     """
     [STATEFUL] features.json에서 특정 기능의 통과 여부를 업데이트합니다.
 
-    passes=True 는 **도구가 직접 테스트 스위트를 실행해 통과를 확인한 뒤에만** 반영됩니다.
-    테스트가 실패하면 플래그는 바뀌지 않고 실패 요약이 반환됩니다 — 먼저 실패를 고치십시오.
-    passes=False(미완성 표시)는 증거 없이 언제나 허용됩니다.
+    passes=True 는 선언이 아니라 입증입니다. 이 도구는 **직접 전체 테스트 스위트를 실행**하고,
+    아래 두 조건을 모두 만족할 때만 플래그를 씁니다.
+
+      1. 스위트에 실패 테스트가 0건 (다른 기능을 깨뜨리지 않았다)
+      2. **해당 기능 ID 를 이름에 포함한 통과 테스트가 1개 이상**
+
+    스위트가 녹색이어도 기능 ID 태그가 없으면 거부됩니다 — 녹색 스위트는
+    '이 기능이 동작한다'의 증거가 아니기 때문입니다.
+
+    태그 규약:
+      기능  → `describe("F-004: 사용자가 로그아웃할 수 있다", ...)`
+      단계  → `test("F-004.5: 로그아웃 시 auth_token 이 삭제된다", ...)`
+
+    통과 시 어떤 테스트가 근거였는지, 명세의 어느 단계가 검증되지 않았는지가
+    features.json 에 함께 기록됩니다. passes=False(미완성 표시)는 증거 없이 허용됩니다.
     기능을 삭제하거나 description을 변경하지 마십시오.
     """
     features_path = Path(project_root) / "features.json"
@@ -352,29 +299,24 @@ def update_features(
     old_status = features[feature_index].get("passes", False)
     verification: dict | None = None
 
-    # ── 증거 게이트 (TS-006) ────────────────────────────────────────────────
-    # passes=True 는 선언이 아니라 입증이어야 한다. 에이전트가 범위를 좁혀 쉬운
-    # 테스트만 돌리는 것을 막기 위해 테스트 경로는 도구가 고정한다(전체 스위트).
+    # ── 증거 게이트 (TS-006 → TS-008) ───────────────────────────────────────
+    # passes=True 는 선언이 아니라 입증이어야 한다. 테스트 경로는 도구가 고정하고
+    # (에이전트가 쉬운 테스트만 골라 돌릴 수 없다), 판정은 '스위트 녹색'이 아니라
+    # **이 기능 ID 를 인용하는 통과 테스트의 존재**로 한다.
     if passes and config.REQUIRE_TEST_EVIDENCE:
-        returncode, output = _run_jest(project_root, test_path=".", coverage=False)
-        summary = _summarize_jest(output)
+        result = verify_feature(project_root, features[feature_index])
 
-        if returncode is None:
+        if not result.ok:
             return (
-                f"[거부] '{feature_name}': 테스트를 실행할 수 없어 passes=true 를 반영하지 않았습니다.\n"
-                f"{output[:800]}"
+                f"[거부] '{feature_name}': passes=true 를 반영하지 않았습니다.\n"
+                f"사유: {result.reason}\n"
+                f"현황: {result.summary()}"
             )
-        if returncode != 0:
-            return (
-                f"[거부] '{feature_name}': 테스트 실패 — passes=true 를 반영하지 않았습니다.\n"
-                f"요약: {summary}\n"
-                f"먼저 실패하는 테스트를 수정하십시오.\n"
-                f"{_failing_tests(output)}"
-            )
+
         verification = {
             "verified_at": datetime.now().isoformat(timespec="seconds"),
             "verified_by": "update_features/jest",
-            "summary":     summary,
+            **result.to_dict(),
         }
 
     features[feature_index]["passes"] = passes
@@ -393,20 +335,6 @@ def update_features(
     if passes and not config.REQUIRE_TEST_EVIDENCE:
         evidence = " ⚠ 증거 게이트가 비활성(HARNESS_REQUIRE_TEST_EVIDENCE=false)"
     return f"[완료] '{feature_name}': {old_status} → {passes}{evidence}"
-
-
-def _failing_tests(output: str, limit: int = 10) -> str:
-    """Jest 출력에서 실패한 테스트 이름 줄만 추려 반환한다."""
-    names = [
-        line.rstrip()
-        for line in output.splitlines()
-        if line.lstrip().startswith("●") and "›" in line
-    ]
-    if not names:
-        return output[-800:]
-    head = names[:limit]
-    more = f"\n  ... 외 {len(names) - limit}건" if len(names) > limit else ""
-    return "실패 목록:\n" + "\n".join(f"  {n.strip()}" for n in head) + more
 
 
 @tool

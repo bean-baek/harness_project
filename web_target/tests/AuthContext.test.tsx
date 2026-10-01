@@ -64,7 +64,7 @@ describe('AuthContext', () => {
     localStorage.setItem('auth_token', token);
   });
 
-  test('logout 함수는 localStorage에서 auth_token을 제거해야 한다', () => {
+  test('F-004.5: logout 함수는 localStorage에서 auth_token을 제거해야 한다', () => {
     const removeItemSpy = jest.spyOn(localStorage, 'removeItem');
 
     const { getByText } = render(

@@ -79,6 +79,24 @@ def run_harness(task_description: str, session_id: str | None = None) -> int:
         f.write(f"{'='*60}\n")
         f.flush()
 
+        # 종료 상태를 **항상** 기록한다 — 이 함수가 어떻게 끝나든 남아야 한다.
+        # 근거: harness_runtime.log 의 15개 블록 중 9개가 종료 마커 없이 끝나
+        # 사후 측정(harness/metrics.py)의 60%가 맹점이었다. 사람이 읽는 마커와 별개로
+        # 기계가 파싱하는 [END] 줄을 finally 에서 남긴다.
+        t_start = time.monotonic()
+        end_state = {"code": None, "outcome": "unknown"}
+
+        def _write_end() -> None:
+            elapsed = round(time.monotonic() - t_start, 1)
+            try:
+                f.write(
+                    f"\n[END] exit={end_state['code']} "
+                    f"outcome={end_state['outcome']} elapsed_sec={elapsed}\n"
+                )
+                f.flush()
+            except Exception:
+                pass
+
         cmd = [
             PYTHON_EXE, "-u", str(PROJECT_DIR / "main.py"),   # -u: stdout 언버퍼드
             "--task", task_description,
@@ -92,67 +110,80 @@ def run_harness(task_description: str, session_id: str | None = None) -> int:
         child_env["PYTHONUTF8"] = "1"
         child_env["PYTHONUNBUFFERED"] = "1"   # 파이프 출력 즉시 flush → 타임아웃·로그 정상 동작
 
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            cwd=str(PROJECT_DIR),
-            env=child_env,
-            bufsize=1,   # 라인 버퍼링
-        )
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                cwd=str(PROJECT_DIR),
+                env=child_env,
+                bufsize=1,   # 라인 버퍼링
+            )
 
-        start     = time.monotonic()
-        timed_out = False
+            start     = time.monotonic()
+            timed_out = False
 
-        # 별도 스레드에서 stdout 을 읽어 파일/터미널로 중계 —
-        # 이렇게 해야 자식이 출력 없이 멈췄을 때도 메인 스레드가 타임아웃을 감지할 수 있다.
-        import threading
-        def _pump():
-            for line in process.stdout:
-                print(line, end='', flush=True)
-                f.write(line)
-                f.flush()
-        pump_thread = threading.Thread(target=_pump, daemon=True)
-        pump_thread.start()
+            # 별도 스레드에서 stdout 을 읽어 파일/터미널로 중계 —
+            # 이렇게 해야 자식이 출력 없이 멈췄을 때도 메인 스레드가 타임아웃을 감지할 수 있다.
+            import threading
+            def _pump():
+                for line in process.stdout:
+                    print(line, end='', flush=True)
+                    f.write(line)
+                    f.flush()
+            pump_thread = threading.Thread(target=_pump, daemon=True)
+            pump_thread.start()
 
-        while True:
-            if process.poll() is not None:
-                break
-            if time.monotonic() - start > TASK_TIMEOUT_SEC:
-                timed_out = True
-                break
-            time.sleep(1)
+            while True:
+                if process.poll() is not None:
+                    break
+                if time.monotonic() - start > TASK_TIMEOUT_SEC:
+                    timed_out = True
+                    break
+                time.sleep(1)
 
-        if timed_out:
-            process.kill()
-            process.wait()
+            if timed_out:
+                process.kill()
+                process.wait()
+                pump_thread.join(timeout=2)
+                msg = f"[⏱ Timeout] {TASK_TIMEOUT_SEC}s 초과 — 프로세스 강제 종료"
+                print(msg)
+                f.write(f"\n{msg}\n")
+                end_state.update(code=-1, outcome="timeout")
+                return -1
+
             pump_thread.join(timeout=2)
-            msg = f"[⏱ Timeout] {TASK_TIMEOUT_SEC}s 초과 — 프로세스 강제 종료"
-            print(msg)
-            f.write(f"\n{msg}\n")
-            return -1
+            process.wait()
+            end_state["code"] = process.returncode
 
-        pump_thread.join(timeout=2)
-        process.wait()
+            if process.returncode in exit_codes.FATAL_INFRA:
+                # 기능 문제가 아니다 — LLM 공급자 장애 등 인프라 결함 (TS-005).
+                # 여기서 attempt 를 소모하면 멀쩡한 기능들이 줄줄이 stuck 으로 마킹된다.
+                end_state["outcome"] = "infra"
+                print(f"[🚨 인프라 장애] {exit_codes.label(process.returncode)} "
+                      f"— 기능 탓이 아니므로 attempt 를 소모하지 않습니다")
+                f.write(f"\n[INFRA] exit={process.returncode} "
+                        f"({exit_codes.label(process.returncode)}) — run aborted\n")
+            elif process.returncode != 0:
+                end_state["outcome"] = "failed"
+                print(f"[❌ Error] 작업 중단됨 (Exit Code: {process.returncode})")
+                f.write(f"\n[ERROR] Task failed with exit code {process.returncode}\n")
+            else:
+                end_state["outcome"] = "success"
+                print(f"[✅ Success] {task_description} 완료")
+                f.write(f"\n[SUCCESS] Task completed\n")
 
-        if process.returncode in exit_codes.FATAL_INFRA:
-            # 기능 문제가 아니다 — LLM 공급자 장애 등 인프라 결함 (TS-005).
-            # 여기서 attempt 를 소모하면 멀쩡한 기능들이 줄줄이 stuck 으로 마킹된다.
-            print(f"[🚨 인프라 장애] {exit_codes.label(process.returncode)} "
-                  f"— 기능 탓이 아니므로 attempt 를 소모하지 않습니다")
-            f.write(f"\n[INFRA] exit={process.returncode} "
-                    f"({exit_codes.label(process.returncode)}) — run aborted\n")
-        elif process.returncode != 0:
-            print(f"[❌ Error] 작업 중단됨 (Exit Code: {process.returncode})")
-            f.write(f"\n[ERROR] Task failed with exit code {process.returncode}\n")
-        else:
-            print(f"[✅ Success] {task_description} 완료")
-            f.write(f"\n[SUCCESS] Task completed\n")
+            return process.returncode
 
-        return process.returncode
+        except BaseException as exc:
+            # KeyboardInterrupt / 파이프 오류 / Popen 실패 — 어떤 경로로 죽어도 기록은 남는다.
+            end_state["outcome"] = f"aborted({type(exc).__name__})"
+            raise
+        finally:
+            _write_end()
 
 
 def feature_still_failing(feature_id: str) -> bool:

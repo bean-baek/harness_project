@@ -69,7 +69,7 @@ describe('UserMenu', () => {
     expect(screen.queryByRole('menuitem', { name: '로그아웃' })).not.toBeInTheDocument();
   });
 
-  test('로그아웃 버튼을 클릭하면 logout 함수가 호출되고 /login으로 이동한다', async () => {
+  test('F-004.3 F-004.4: 로그아웃 버튼을 클릭하면 logout 함수가 호출되고 /login으로 이동한다', async () => {
     // Given: 사용자가 로그인되어 있고, UserMenu가 렌더링됨
     renderComponent();
     const triggerButton = screen.getByRole('button', { name: /Test User/ });

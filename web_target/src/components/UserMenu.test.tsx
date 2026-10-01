@@ -75,7 +75,7 @@ describe('UserMenu', () => {
     expect(avatar.src).toBe(mockUser.avatarUrl);
   });
 
-  it('메뉴 버튼 클릭 시 드롭다운 메뉴가 열리고 닫혀야 합니다', () => {
+  it('F-004.2: 메뉴 버튼 클릭 시 드롭다운 메뉴가 열리고 닫혀야 합니다', () => {
     // Arrange
     mockUseAuth.mockReturnValue({
       user: mockUser,
@@ -98,7 +98,7 @@ describe('UserMenu', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
-  it('Logout 버튼 클릭 시 useAuth의 logout 함수가 호출되고 /login 페이지로 이동해야 합니다', async () => {
+  it('F-004.3 F-004.4: Logout 버튼 클릭 시 useAuth의 logout 함수가 호출되고 /login 페이지로 이동해야 합니다', async () => {
     // Arrange
     const mockLogout = jest.fn();
     mockUseAuth.mockReturnValue({

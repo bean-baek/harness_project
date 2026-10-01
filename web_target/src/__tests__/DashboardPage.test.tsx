@@ -22,12 +22,12 @@ describe('DashboardPage', () => {
     expect(screen.getByText(/welcome back/i)).toBeInTheDocument();
   });
 
-  it('renders the weekly completion chart section', () => {
+  it('F-018.1: renders the weekly completion chart section', () => {
     render(<DashboardPage />);
     expect(screen.getByRole('heading', { name: /weekly task completions/i })).toBeInTheDocument();
   });
 
-  it('renders the chart summary with the most productive day', () => {
+  it('F-018.2: renders the chart summary with the most productive day', () => {
     render(<DashboardPage />);
     // Chart 컴포넌트 내부의 텍스트가 렌더링 되는지 확인
     expect(screen.getByText(/your most productive day was/i)).toBeInTheDocument();

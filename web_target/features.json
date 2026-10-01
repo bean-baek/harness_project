@@ -12,7 +12,34 @@
       "네비게이션에 사용자 이름이 표시됨을 확인한다"
     ],
     "passes": true,
-    "priority": 1
+    "priority": 1,
+    "verification": {
+      "verified_at": "2026-10-01T19:03:37",
+      "verified_by": "update_features/jest",
+      "level": "feature",
+      "suite": {
+        "total": 27,
+        "passed": 27,
+        "failed": 0,
+        "suites_total": 5,
+        "suites_failed": 0
+      },
+      "summary": "suite 27/27 passed | tagged 3 passed | steps 0/6 covered",
+      "evidence_tests": [
+        "F-001: 이메일/비밀번호 로그인 유효한 자격증명으로 로그인 성공 시 onSuccess 콜백 호출",
+        "F-001: 이메일/비밀번호 로그인 로그인 성공 시 localStorage에 토큰 저장",
+        "F-001: 이메일/비밀번호 로그인 로그인 요청 중 버튼이 \"로그인 중...\"으로 변경되고 비활성화"
+      ],
+      "steps_covered": [],
+      "steps_uncovered": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    }
   },
   {
     "id": "F-002",
@@ -26,7 +53,33 @@
       "페이지가 /login에 유지됨을 확인한다"
     ],
     "passes": true,
-    "priority": 1
+    "priority": 1,
+    "verification": {
+      "verified_at": "2026-10-01T19:03:47",
+      "verified_by": "update_features/jest",
+      "level": "feature",
+      "suite": {
+        "total": 27,
+        "passed": 27,
+        "failed": 0,
+        "suites_total": 5,
+        "suites_failed": 0
+      },
+      "summary": "suite 27/27 passed | tagged 3 passed | steps 0/5 covered",
+      "evidence_tests": [
+        "F-002: 잘못된 자격증명 오류 처리 401 응답 시 \"이메일 또는 비밀번호\" 오류 메시지 표시",
+        "F-002: 잘못된 자격증명 오류 처리 500 서버 오류 시 일반 오류 메시지 표시",
+        "F-002: 잘못된 자격증명 오류 처리 네트워크 오류 시 연결 문제 메시지 표시"
+      ],
+      "steps_covered": [],
+      "steps_uncovered": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
   },
   {
     "id": "F-003",
@@ -40,7 +93,35 @@
       "로그인 버튼이 비활성화(disabled)임을 확인한다"
     ],
     "passes": true,
-    "priority": 2
+    "priority": 2,
+    "verification": {
+      "verified_at": "2026-10-01T19:03:56",
+      "verified_by": "update_features/jest",
+      "level": "feature",
+      "suite": {
+        "total": 27,
+        "passed": 27,
+        "failed": 0,
+        "suites_total": 5,
+        "suites_failed": 0
+      },
+      "summary": "suite 27/27 passed | tagged 5 passed | steps 0/5 covered",
+      "evidence_tests": [
+        "F-003: 이메일 형식 유효성 검사 @가 없는 이메일 입력 후 포커스 이탈 시 오류 표시",
+        "F-003: 이메일 형식 유효성 검사 유효하지 않은 이메일이면 로그인 버튼 비활성화",
+        "F-003: 이메일 형식 유효성 검사 유효한 이메일 + 유효한 비밀번호 입력 시 버튼 활성화",
+        "F-003: 이메일 형식 유효성 검사 빈 이메일 제출 시 오류 메시지 표시",
+        "F-003: 이메일 형식 유효성 검사 8자 미만 비밀번호 오류 메시지 표시"
+      ],
+      "steps_covered": [],
+      "steps_uncovered": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
   },
   {
     "id": "F-004",
@@ -56,9 +137,32 @@
     "passes": true,
     "priority": 1,
     "verification": {
-      "verified_at": "2026-10-01T18:29:45",
+      "verified_at": "2026-10-01T19:04:05",
       "verified_by": "update_features/jest",
-      "summary": "Test Suites: 5 passed, 5 total | Tests:       27 passed, 27 total"
+      "level": "feature",
+      "suite": {
+        "total": 27,
+        "passed": 27,
+        "failed": 0,
+        "suites_total": 5,
+        "suites_failed": 0
+      },
+      "summary": "suite 27/27 passed | tagged 4 passed | steps 4/5 covered",
+      "evidence_tests": [
+        "AuthContext F-004.5: logout 함수는 localStorage에서 auth_token을 제거해야 한다",
+        "UserMenu F-004.2: 메뉴 버튼 클릭 시 드롭다운 메뉴가 열리고 닫혀야 합니다",
+        "UserMenu F-004.3 F-004.4: Logout 버튼 클릭 시 useAuth의 logout 함수가 호출되고 /login 페이지로 이동해야 합니다",
+        "UserMenu F-004.3 F-004.4: 로그아웃 버튼을 클릭하면 logout 함수가 호출되고 /login으로 이동한다"
+      ],
+      "steps_covered": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "steps_uncovered": [
+        1
+      ]
     }
   },
   {
@@ -191,7 +295,7 @@
       "누가 가장 많은 할 일을 완료했는지 순위대로 정렬된 목록을 확인한다",
       "내 위치가 강조되어 표시됨을 확인한다"
     ],
-    "passes": true,
+    "passes": false,
     "priority": 3
   },
   {
@@ -224,8 +328,29 @@
       "대시보드 접속 시 최근 7일간의 완료 추이 차트를 확인한다",
       "가장 생산성이 높았던 요일을 텍스트로 요약해준다"
     ],
-    "passes": false,
-    "priority": 2
+    "passes": true,
+    "priority": 2,
+    "verification": {
+      "verified_at": "2026-10-01T19:03:27",
+      "verified_by": "update_features/jest",
+      "level": "feature",
+      "suite": {
+        "total": 27,
+        "passed": 27,
+        "failed": 0,
+        "suites_total": 5,
+        "suites_failed": 0
+      },
+      "summary": "suite 27/27 passed | tagged 2 passed | steps 2/2 covered",
+      "evidence_tests": [
+        "DashboardPage F-018.1: renders the weekly completion chart section",
+        "DashboardPage F-018.2: renders the chart summary with the most productive day"
+      ],
+      "steps_covered": [
+        1,
+        2
+      ]
+    }
   },
   {
     "id": "F-019",
