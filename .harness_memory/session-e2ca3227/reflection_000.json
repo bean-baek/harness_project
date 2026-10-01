@@ -1,0 +1,6 @@
+{
+  "iteration": 0,
+  "timestamp": "2026-04-14T18:10:25.343042",
+  "reflection": "```xml\n<reflection>\n  <attempt>0</attempt>\n  <root_cause>에이전트가 '로그인 기능 구현'이라는 고수준의 요구사항을 구체적인 기술 계획(API 엔드포인트, 데이터 모델, 로직 흐름 등)으로 분해하지 않고, 곧바로 코드 작성을 시도하려 했기 때문입니다. 이로 인해 어떤 코드부터 작성해야 할지 결정하지 못하고 작업에 착수하지 못했습니다.</root_cause>\n  <what_not_to_do>요구사항을 받자마자 세부적인 계획 없이 바로 구현 코드를 작성하려고 시도하지 말 것.</what_not_to_do>\n  <correction_strategy>가장 먼저, 로그인 기능에 필요한 기술 명세를 마크다운 파일로 작성한다. 명세에는 다음 내용이 포함되어야 한다:\n1.  **데이터 모델:** `users` 테이블에 필요한 `email`과 `password` (해시됨) 필드를 정의한다.\n2.  **API 엔드포인트:** `POST /api/auth/login` 엔드포인트를 정의한다. 요청 본문(request body)과 성공/실패 시의 응답(response) 형식을 명시한다.\n3.  **핵심 로직:** 이메일로 사용자 조회 -> 비밀번호 검증 -> JWT 토큰 생성 및 반환의 순서로 처리 로직을 기술한다.\n\n이 계획 파일이 작성되고 승인된 후에야 실제 코드 구현을 시작한다.</correction_strategy>\n  <confidence>95</confidence>\n</reflection>\n```",
+  "metadata": {}
+}

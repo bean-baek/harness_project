@@ -1,0 +1,22 @@
+# 하네스 엔지니어링 Python 의존성
+# pip install -r requirements.txt
+
+# ── LangGraph 코어 ────────────────────────────────────────────────────
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-google-genai>=0.3.0
+langchain-core>=0.3.0
+
+# ── 체크포인터 ────────────────────────────────────────────────────────
+# 개발: InMemorySaver (기본 포함)
+# 프로덕션: PostgreSQL 체크포인터
+# langgraph-checkpoint-postgres>=2.0.0
+# psycopg2-binary>=2.9.0
+
+# ── 유틸리티 ─────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# ── 선택: 벡터 DB (Reflexion 메모리 강화) ───────────────────────────
+# chromadb>=0.5.0
+# sentence-transformers>=3.0.0

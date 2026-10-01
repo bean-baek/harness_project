@@ -1,0 +1,6 @@
+{
+  "iteration": 0,
+  "timestamp": "2026-04-14T18:36:35.371783",
+  "reflection": "```xml\n<reflection>\n  <attempt>0</attempt>\n  <root_cause>에이전트는 라우트 보호 로직이 컴포넌트 렌더링 이전에 라우팅 계층에서 처리되어야 하는 횡단 관심사(cross-cutting concern)라는 것을 인지하지 못하고, 컴포넌트 내부의 단순 조건문으로 구현할 수 있다고 잘못 가정했습니다.</root_cause>\n  <what_not_to_do>보호가 필요한 페이지 컴포넌트의 렌더링 로직 내부에 직접 인증 확인 및 리다이렉트 코드를 작성하지 말 것. 이는 렌더링 생명주기에서 너무 늦은 시점이며, 의도대로 동작하지 않거나 보호된 콘텐츠가 잠시 노출되는 원인이 될 수 있다.</what_not_to_do>\n  <correction_strategy>전용 'ProtectedRoute' 또는 'AuthGuard' 래퍼 컴포넌트를 구현한다. 이 컴포넌트는 다음을 수행한다:\n1. 렌더링할 실제 페이지 컴포넌트를 자식(children)으로 받는다.\n2. 내부적으로 `useAuth`와 같은 커스텀 훅이나 전역 상태 관리자를 통해 사용자의 인증 상태를 먼저 확인한다.\n3. 인증 상태가 확인되지 않았거나(unauthenticated), 인증되지 않은 경우, 자식 컴포넌트 대신 로그인 페이지로 리다이렉트하는 컴포넌트(예: React Router의 `<Navigate to=\"/login\" />`)를 렌더링한다.\n4. 인증된 경우에만 자식 컴포넌트를 렌더링한다.\n이후 라우터 설정에서 보호할 모든 페이지를 이 `ProtectedRoute` 컴포넌트로 감싸도록 수정한다.</correction_strategy>\n  <confidence>95</confidence>\n</reflection>\n```",
+  "metadata": {}
+}

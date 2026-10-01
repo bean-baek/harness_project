@@ -1,0 +1,6 @@
+{
+  "iteration": 2,
+  "timestamp": "2026-04-14T19:37:25.142643",
+  "reflection": "<reflection>\n  <attempt>2</attempt>\n  <root_cause>에이전트가 클라이언트 측의 로그아웃 흐름(UI 버튼 → API 호출 → 리디렉션)은 구현했지만, 정작 가장 중요한 서버 측의 세션 무효화 로직을 누락했습니다. 백엔드 로그아웃 API가 성공 응답(200 OK)만 반환하고 실제로는 사용자의 세션이나 인증 토큰을 파기하지 않아, 사용자는 서버에 계속 로그인된 상태로 남게 되었습니다.</root_cause>\n  <what_not_to_do>API 엔드포인트가 존재하고 200 OK 상태를 반환한다는 이유만으로 기능 구현이 완료되었다고 가정하지 말 것. 리디렉션과 같은 클라이언트 측의 사용자 경험에만 집중하고, 기능의 핵심인 서버 측 상태 변경(state change)을 간과하지 말 것.</what_not_to_do>\n  <correction_strategy>1. **백엔드 핸들러 탐색:** 서버 코드에서 `/api/auth/logout` 라우트를 처리하는 핸들러 함수를 찾는다. (예: `routes/auth.js` 또는 `controllers/authController.js` 내부)\n2. **세션 파기 로직 구현:** 해당 핸들러 함수 내부에 실제 세션/토큰을 무효화하는 코드를 추가한다.\n   - `express-session`을 사용하는 경우: `req.session.destroy()`를 호출하여 서버 세션을 파기한다.\n   - JWT를 쿠키에 저장하여 사용하는 경우: `res.clearCookie('token_name')`을 사용하여 인증 쿠키를 삭제한다.\n3. **성공 응답 전송:** 세션/토큰이 성공적으로 무효화된 후, 클라이언트에 성공 응답을 보낸다. (예: `res.status(200).send({ message: 'Logged out' });`)\n4. **종단간(End-to-End) 검증 강화:** 테스트 시, (1)로그인 → (2)로그아웃 버튼 클릭 → (3)로그인 페이지로 리디렉션 확인 후, **(4)보호된 페이지(protected route)로 다시 접근을 시도하여 접근이 거부되는지 반드시 확인**한다. 이를 통해 세션이 서버에서 실제로 종료되었음을 검증한다.</correction_strategy>\n  <confidence>95</confidence>\n</reflection>",
+  "metadata": {}
+}
