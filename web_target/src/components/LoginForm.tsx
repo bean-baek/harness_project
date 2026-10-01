@@ -43,6 +43,20 @@ const validatePassword = (password: string): string | undefined => {
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
+/**
+ * 오픈 리다이렉트 방어 — 내부 경로만 허용한다.
+ *
+ * `?redirect=` 값은 URL 쿼리에서 그대로 들어온다(F-005 의 ProtectedRoute 가 쓴다).
+ * 검증 없이 `window.location.href` 에 넣으면 `?redirect=https://evil.com` 으로
+ * 로그인 직후 외부 사이트로 끌고 갈 수 있다.
+ * 프로토콜 상대 URL(`//host`)과 역슬래시 변형(`/\host`)도 외부로 나가므로 함께 막는다.
+ */
+export const safeRedirectTarget = (target: string | null | undefined): string => {
+  if (!target || !target.startsWith('/')) return '/';
+  if (target.startsWith('//') || target.startsWith('/\\')) return '/';
+  return target;
+};
+
 export const LoginForm: React.FC<LoginFormProps> = ({
   onSuccess,
   redirectTo = '/',
@@ -102,7 +116,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       onSuccess?.(token);
 
       // 리다이렉트
-      window.location.href = redirectTo;
+      window.location.href = safeRedirectTarget(redirectTo);
 
     } catch {
       setErrors({ general: '연결에 문제가 있습니다. 잠시 후 다시 시도해주세요.' });

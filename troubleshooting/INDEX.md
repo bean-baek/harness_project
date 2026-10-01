@@ -14,3 +14,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-008](TS-008-suite-green-is-not-feature-evidence.md) | resolved | high | "스위트 녹색"을 "이 기능이 검증됨"으로 오인 — 증거 게이트가 기능과 테스트를 연결하지 않았다 | `harness/verify.py` |
 | [TS-009](TS-009-unrecorded-run-outcomes.md) | resolved | medium | 실행 15회 중 9회가 종료 상태를 남기지 않아 하네스 사후 측정의 60%가 맹점 | `night_shift.py` |
 | [TS-010](TS-010-tokenless-mode.md) | resolved | high | 하네스의 가치는 이미 토큰을 쓰지 않았다 — 유료 API를 추론 엔진에서 제거 | `harness/cli.py` |
+| [TS-011](TS-011-auth-guard-race-and-open-redirect.md) | resolved | high | 라우트 가드가 isLoading을 무시해 새로고침마다 로그아웃 + ?redirect= 오픈 리다이렉트 | `web_target/src/components/ProtectedRoute.tsx` |

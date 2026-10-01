@@ -85,18 +85,26 @@ check("대조군: harness.graph 는 차단됨", "blocked" in (r.stdout + r.stder
 
 print("\n[2] 차단 상태에서 게이트가 실제로 판정하는가")
 
+# 검증 대상을 features.json 에서 동적으로 고른다 — 특정 ID 에 묶으면
+# 그 기능이 구현되는 순간 테스트가 깨진다 (실제로 F-005 에서 발생했다).
+_all = json.loads(io.open("web_target/features.json", encoding="utf-8").read())
+PASSING = next((f["id"] for f in _all if f.get("passes")), None)
+PENDING = next((f["id"] for f in _all if not f.get("passes")), None)
+assert PASSING, "통과 기능이 없어 통과 경로를 검증할 수 없습니다"
+assert PENDING, "미구현 기능이 없어 거부 경로를 검증할 수 없습니다"
+print(f"  (통과 검증 대상: {PASSING} / 거부 검증 대상: {PENDING})")
 r = run_isolated(
     "from harness.cli import main; "
-    "raise SystemExit(main(['verify','F-004','--project','./web_target']))"
+    f"raise SystemExit(main(['verify','{PASSING}','--project','./web_target']))"
 )
-check("F-004 통과 판정 (종료 0)", r.returncode, 0)
+check(f"{PASSING} 통과 판정 (종료 0)", r.returncode, 0)
 check("근거 테스트 출력", "근거 테스트" in r.stdout, True)
 
 r = run_isolated(
     "from harness.cli import main; "
-    "raise SystemExit(main(['verify','F-005','--project','./web_target']))"
+    f"raise SystemExit(main(['verify','{PENDING}','--project','./web_target']))"
 )
-check("F-005 거부 판정 (종료 1)", r.returncode, 1)
+check(f"{PENDING} 거부 판정 (종료 1)", r.returncode, 1)
 check("사유 제시", "검증하는 테스트가 없습니다" in r.stdout, True)
 
 r = run_isolated(
@@ -109,7 +117,7 @@ print("\n[3] 플래그 불변성 — 거부 시 features.json 이 바뀌지 않�
 before = Path("web_target/features.json").read_text(encoding="utf-8")
 r = run_isolated(
     "from harness.cli import main; "
-    "raise SystemExit(main(['mark','F-005','--project','./web_target']))"
+    f"raise SystemExit(main(['mark','{PENDING}','--project','./web_target']))"
 )
 after = Path("web_target/features.json").read_text(encoding="utf-8")
 check("mark 거부 (종료 1)", r.returncode, 1)

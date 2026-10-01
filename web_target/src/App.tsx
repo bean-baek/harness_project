@@ -6,12 +6,13 @@
  */
 
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider }          from './contexts/AuthContext';
 import { ThemeProvider }         from './contexts/ThemeContext';
 import { NotificationProvider }  from './contexts/NotificationContext';
 import { Layout }                from './components/Layout';
 import { LoadingSpinner }        from './components/ui/LoadingSpinner';
+import { ProtectedRoute }       from './components/ProtectedRoute';
 
 // ── 지연 로딩 (번들 크기 최적화) ──────────────────────────────────────────────
 const LoginPage     = lazy(() => import('./pages/LoginPage'));
@@ -20,30 +21,6 @@ const UsersPage     = lazy(() => import('./pages/admin/UsersPage'));
 const ProfilePage   = lazy(() => import('./pages/ProfilePage'));
 const SettingsPage  = lazy(() => import('./pages/SettingsPage'));
 const NotFoundPage  = lazy(() => import('./pages/NotFoundPage'));
-
-// ── 인증 보호 라우트 ──────────────────────────────────────────────────────────
-
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-  requireAdmin?: boolean;
-}
-
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
-  children,
-  requireAdmin = false,
-}) => {
-  const { isAuthenticated, user } = useAuth();
-  const redirectUrl = encodeURIComponent(window.location.pathname);
-
-  if (!isAuthenticated) {
-    // F-005: 인증되지 않은 사용자 → 로그인으로 리다이렉트
-    return <Navigate to={`/login?redirect=${redirectUrl}`} replace />;
-  }
-  if (requireAdmin && !user?.isAdmin) {
-    return <Navigate to="/" replace />;
-  }
-  return <>{children}</>;
-};
 
 // ── 앱 라우터 ─────────────────────────────────────────────────────────────────
 
