@@ -18,3 +18,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-012](TS-012-declared-but-dead-commands.md) | resolved | high | package.json이 광고하는 명령 3개(lint/build/test:e2e)가 전부 동작하지 않았다 | `web_target/package.json` |
 | [TS-013](TS-013-unit-tests-cannot-verify-route-table.md) | resolved | high | 단위 테스트가 자기가 만든 라우트를 검증해 F-005가 실 브라우저에서 전혀 동작하지 않았다 | `web_target/src/routes.ts` |
 | [TS-014](TS-014-tag-points-at-wrong-feature.md) | resolved | high | 태그가 엉뚱한 기능을 가리켜도 게이트가 보지 못한다 — 피험체 결함은 어디까지 고치는가 | `harness/tags.py` |
+| [TS-015](TS-015-orphaned-measurement-after-mode-switch.md) | resolved | medium | 토큰 없는 모드로 옮기며 측정 계층의 절반이 고아가 됐다 — 기록자가 사라진 것을 몰랐다 | `harness/cli.py` |

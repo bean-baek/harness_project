@@ -1,5 +1,7 @@
 # 하네스 엔지니어링 (Harness Engineering)
 
+[![CI](https://github.com/bean-baek/harness_project/actions/workflows/ci.yml/badge.svg)](https://github.com/bean-baek/harness_project/actions/workflows/ci.yml)
+
 > **자율 코딩 에이전트를 "돌리는 법"이 아니라 "운영하는 법"을 만드는 프로젝트.**
 
 LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 **사람이 보지 않는 동안
@@ -13,7 +15,7 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 | | |
 |---|---|
 | **결과물이다** | `harness/` — 에이전트 실행·검증·측정·중단을 관리하는 운영 계층 |
-| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **14건**의 재현·원인·수정·검증 기록 |
+| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **15건**의 재현·원인·수정·검증 기록 |
 | **결과물이 아니다** | `web_target/` — 투두 앱. 하네스를 시험하기 위한 **피험체**이자 벤치마크 과제 |
 
 `web_target` 의 기능 75개(`features.json`)는 목표가 아니라 **측정 수단**이다.
@@ -76,8 +78,11 @@ python -m harness.cli mark F-006     # 게이트 통과 시에만 기록  (0 통
 python -m harness.cli unmark F-006   # 미완성으로 되돌림 (증거 제거)
 python -m harness.cli audit          # 통과 플래그 전수 재검증
 python -m harness.cli tags           # 태그가 옳은 기능을 가리키는지 검사
-python -m harness.cli report         # 판별력 + 실행 로그 측정
+python -m harness.cli report         # 판별력 + 게이트 판정 집계 + 실행 로그
 ```
+
+`verify` / `mark` / `unmark` 는 판정마다 `harness_runtime.log` 에 기록을 남긴다
+(`--log` 로 경로 변경, `--no-log` 로 비활성화). 그 기록이 아래 §6 의 집계 입력이다.
 
 Claude Code 세션에서는 [.claude/skills/harness/SKILL.md](.claude/skills/harness/SKILL.md) 가
 절차를 안내한다 — 네 가지 불신 → 구현 → 태그 테스트 → 게이트 → 자기평가 → 기록.
@@ -204,6 +209,21 @@ python -m harness.cli report
 이 수치는 "게이트가 옳다"는 증명이 아니라 **"게이트를 끈 것과 비교해 실제로 다른 일을
 한다"는 반증 가능한 측정**이다. *(저자 측정, 독립 검증 필요)*
 
+### 6.1 게이트가 무엇을 걸렀는가 (TS-015)
+
+토큰 없는 모드에서 측정할 것은 **비용이 아니라 판정의 효과**다. `cli` 가 판정마다 남기는
+기록을 집계해 네 가지를 센다.
+
+| 지표 | 의미 |
+|---|---|
+| 판정 분포 (통과/거부/회수) | 게이트가 얼마나 거부하는가 |
+| 거부 사유 분포 | **세션이 주로 무엇을 빠뜨리는가** |
+| 기능별 거부 횟수 | 하나를 입증하는 데 몇 번 막혔는가 |
+| **회수(unmark) 횟수** | **게이트가 틀렸던 횟수** — 통과시킨 뒤 번복한 사건 |
+
+마지막 지표가 핵심이다. 현재 유일한 데이터 포인트는 부끄러운 것이다 — F-005 에서
+게이트는 **통과시켰고** 실제로 잡은 것은 E2E 였다(TS-013). 그 사건이 수치로 남는다.
+
 근거와 방법론: [docs/comparison-revfactory.md](docs/comparison-revfactory.md)
 
 ---
@@ -269,7 +289,7 @@ python -m harness.cli report
 기능 6/75 통과 — 전부 증거 기록 보유
 jest 51/51 (7 suites) · E2E 14 통과 / 4 보류 / 실패 0
 lint exit 0 · build exit 0 · tsc 오류 0
-하네스 회귀 176건 (repro_ts005/006/008/009/010) 전부 통과
+하네스 회귀 205건 (repro_ts005/006/008/009/010/015) 전부 통과
 ```
 
 | 기능 | 근거 테스트 | 단계 커버리지 |
@@ -291,6 +311,7 @@ python repro_ts006.py   # 증거 게이트 정책                    32/32
 python repro_ts008.py   # 명세-테스트 연결 판정               49/49
 python repro_ts009.py   # 측정 계층 + 종료 상태 기록          36/36
 python repro_ts010.py   # 토큰 없는 모드 의존성 독립          22/22
+python repro_ts015.py   # 실행 기록 + 게이트 판정 집계        29/29
 
 cd web_target
 npm run lint       # exit 0
@@ -307,14 +328,30 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 ### 알려진 제약
 
 - Gemini 프로젝트가 월 지출 한도 소진 → 유료 모드 실행 불가. 해제하거나 `flash` 로 재실행.
-- **기능당 토큰·비용을 기록하지 않는다** — "하네스가 비용만큼 값을 했는가"를 계산할 수 없다.
 - **하네스 유무의 A/B 를 돌리지 못했다** — §6 은 *게이트 기준*의 A/B 이고, 하네스 전체의
   효과는 미측정이다. 설계는 서 있으나 수치가 없다.
+- 게이트 판정 집계(§6.1)는 이제 쌓이기 시작했을 뿐이다 — 표본이 적다.
+- **유료 경로 2,357줄이 쓰지 않는 모드를 위해 남아 있다.** 보존이냐 삭제냐를
+  명시적으로 정해야 한다(현재는 어정쩡하게 방치).
 - Evaluator 의 LLM 채점과 `EVAL_WEIGHTS` / 75점 임계는 **근거 없는 상수**다.
   단, `features.json` 의 플래그는 그 점수에 의존하지 않는다 — 분리되어 있다.
 - 태그된 테스트가 **제대로** 검증하는지는 게이트가 보지 않는다.
   `expect(true).toBe(true)` 에 태그를 붙이면 통과한다.
 - 커버리지 임계 80% 대비 실측 미달.
+
+---
+
+## 10.1 CI
+
+매 푸시마다 GitHub Actions 가 **선언된 모든 명령을 실제로 돌린다** — 이 프로젝트가
+네 번 반복한 "선언했는데 아무도 돌려보지 않아 유지된 결함"에 대한 기계적 처방이다.
+토큰 없는 모드이므로 **API 키 없이 전부 돈다**(비용 0).
+
+| 잡 | 내용 |
+|---|---|
+| `하네스 검증` | `repro_ts005/006/008/009/010/015` (205건) + `cli tags` + `cli audit` + `cli report` |
+| `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
+| `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
 ---
 
@@ -336,6 +373,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-012 | `package.json` 이 광고하는 명령 3개(lint/build/test:e2e)가 전부 동작하지 않았다 |
 | TS-013 | 단위 테스트가 자기가 만든 라우트를 검증해 F-005 가 실 브라우저에서 전혀 동작하지 않았다 |
 | TS-014 | 태그가 엉뚱한 기능을 가리켜도 게이트가 보지 못한다 — 피험체 결함은 어디까지 고치는가 |
+| TS-015 | 토큰 없는 모드로 옮기며 측정 계층의 절반이 고아가 됐다 — 기록자가 사라진 것을 몰랐다 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

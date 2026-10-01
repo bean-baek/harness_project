@@ -367,6 +367,104 @@ def format_run_log(stats: dict[str, Any]) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 3. 게이트 판정 집계 (TS-015)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# 토큰 없는 모드에서 측정해야 할 것은 비용이 아니라 **게이트가 무엇을 걸렀는가** 다.
+# `harness.cli` 가 판정마다 남기는 [GATE] 줄을 집계한다.
+#
+# 핵심 지표:
+#   거부 사유 분포   — 세션이 주로 무엇을 빠뜨리는가
+#   통과까지 거부 수 — 기능 하나를 입증하는 데 몇 번 막혔는가
+#   revoke 횟수      — **게이트가 틀렸던 횟수** (통과시킨 뒤 회수한 사건)
+
+_GATE_RE = re.compile(
+    r"^\[GATE\] feature=(\S+) command=(\S+) verdict=(\S+) level=(\S+) reason=(.*)$"
+)
+
+
+def gate_stats(log_path: str) -> dict[str, Any]:
+    """실행 기록에서 게이트 판정을 집계한다."""
+    path = Path(log_path)
+    if not path.is_file():
+        return {"error": f"로그 파일이 없습니다: {log_path}"}
+
+    verdicts: dict[str, int] = {}
+    reasons: dict[str, int] = {}
+    per_feature: dict[str, dict[str, int]] = {}
+
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = _GATE_RE.match(raw.strip())
+        if not m:
+            continue
+        fid, command, verdict, _level, reason = m.groups()
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
+        if verdict == "reject":
+            reasons[reason.strip()] = reasons.get(reason.strip(), 0) + 1
+        slot = per_feature.setdefault(fid, {"accept": 0, "reject": 0, "revoke": 0})
+        if verdict in slot:
+            slot[verdict] += 1
+
+    total = sum(verdicts.values())
+    return {
+        "total_judgements": total,
+        "verdicts": verdicts,
+        "reject_reasons": reasons,
+        "per_feature": per_feature,
+        # 게이트가 통과시킨 뒤 회수된 사건 — 게이트의 오판 횟수
+        "revocations": verdicts.get("revoke", 0),
+        "reject_rate": round(verdicts.get("reject", 0) / total, 4) if total else None,
+    }
+
+
+def format_gate_stats(stats: dict[str, Any]) -> str:
+    """게이트 집계를 사람이 읽을 표로."""
+    if "error" in stats:
+        return f"[오류] {stats['error']}"
+    if not stats["total_judgements"]:
+        return (
+            "=" * 68 + "\n"
+            "게이트 판정 집계\n" + "=" * 68 + "\n"
+            "  기록된 판정이 없습니다 — `cli verify` / `cli mark` 를 쓰면 쌓입니다.\n"
+            + "=" * 68
+        )
+
+    bar = "=" * 68
+    lines = [bar, "게이트 판정 집계 — 게이트가 무엇을 걸렀는가", bar]
+    lines.append(f"  총 판정 {stats['total_judgements']}건")
+    lines.append("")
+    lines.append("  판정 분포")
+    lines.append("  " + "-" * 64)
+    labels = {"accept": "통과", "reject": "거부", "revoke": "회수(unmark)"}
+    for verdict, count in sorted(stats["verdicts"].items(), key=lambda kv: -kv[1]):
+        lines.append(f"  {labels.get(verdict, verdict):<14} {count:>4}건")
+    if stats["reject_rate"] is not None:
+        lines.append(f"  거부율         {stats['reject_rate'] * 100:>5.1f}%")
+
+    if stats["reject_reasons"]:
+        lines += ["", "  거부 사유 — 세션이 주로 무엇을 빠뜨리는가", "  " + "-" * 64]
+        for reason, count in sorted(stats["reject_reasons"].items(), key=lambda kv: -kv[1]):
+            lines.append(f"  {reason:<20} {count:>4}건")
+
+    noisy = {f: s for f, s in stats["per_feature"].items() if s["reject"] or s["revoke"]}
+    if noisy:
+        lines += ["", "  기능별 (거부 또는 회수가 있던 것만)", "  " + "-" * 64]
+        for fid, s in sorted(noisy.items()):
+            lines.append(
+                f"  {fid:<8} 통과 {s['accept']} / 거부 {s['reject']} / 회수 {s['revoke']}"
+            )
+
+    if stats["revocations"]:
+        lines += [
+            "",
+            f"  ⚠ 회수 {stats['revocations']}건 — 게이트가 통과시킨 뒤 번복한 사건이다.",
+            "    게이트가 보지 못한 결함이 있었다는 뜻이므로 사유를 추적할 가치가 있다.",
+        ]
+    lines.append(bar)
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CLI
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -383,13 +481,16 @@ def main() -> int:
 
     report = discrimination_report(args.project)
     stats = run_log_stats(args.log)
+    gates = gate_stats(args.log)
 
     if args.json:
         stats.pop("runs", None)
-        print(json.dumps({"discrimination": report, "run_log": stats},
+        print(json.dumps({"discrimination": report, "run_log": stats, "gate": gates},
                          ensure_ascii=False, indent=2))
     else:
         print(format_discrimination(report))
+        print()
+        print(format_gate_stats(gates))
         print()
         print(format_run_log(stats))
     return 0

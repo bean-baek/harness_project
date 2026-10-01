@@ -36,7 +36,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -49,6 +52,74 @@ from harness.verify import (  # noqa: E402
 )
 
 DEFAULT_PROJECT = "./web_target"
+DEFAULT_LOG = os.environ.get("HARNESS_RUN_LOG", "./harness_runtime.log")
+
+
+# ── 실행 기록 (TS-015) ───────────────────────────────────────────────────────
+# 유료 모드에서는 night_shift 가 [END] 줄을 남겨 사후 측정이 가능했다. 토큰 없는 모드로
+# 옮기면서 그 기록자가 사라져 metrics.run_log_stats 가 **고아가 됐다** — 측정 계층의
+# 절반이 이제 쓰지 않는 모드만 측정하고 있었다.
+#
+# 그래서 CLI 가 그 역할을 이어받는다. 측정 대상은 토큰이 아니라 **게이트가 무엇을
+# 걸렀는가** 다: 거부 횟수, 사유 분포, 통과까지 걸린 거부 수, unmark(게이트가 틀렸던 횟수).
+
+#: 거부 사유를 분류한다 — metrics 의 _reason_class 와 같은 어휘를 쓴다
+_REASON_PATTERNS = (
+    ("회귀", "실패 테스트"),
+    ("테스트 없음", "테스트가 0건"),
+    ("태그 테스트 실패", "태그 테스트"),
+    ("기능 태그 없음", "검증하는 테스트가 없습니다"),
+    ("단계 미검증", "명세 단계"),
+    ("실행 불가", "jest"),
+)
+
+
+def classify_reason(reason: str) -> str:
+    """거부 사유 한 줄을 분류명으로 환원한다."""
+    for label, needle in _REASON_PATTERNS:
+        if needle in reason:
+            return label
+    return "기타" if reason else "-"
+
+
+def record_run(
+    log_path: str | None,
+    *,
+    feature_id: str,
+    description: str,
+    command: str,
+    verdict: str,
+    reason: str = "",
+    level: str = "",
+    exit_code: int = 0,
+    elapsed: float = 0.0,
+) -> None:
+    """게이트 판정 한 건을 로그에 남긴다.
+
+    블록 형식은 TS-009 의 night_shift 기록과 **동일**하게 유지한다 —
+    metrics.run_log_stats 가 두 시대의 기록을 같은 파서로 읽을 수 있어야 한다.
+    `[GATE]` 줄은 게이트 전용 차원(판정·사유·수준)을 추가한다.
+    """
+    if not log_path:
+        return
+    bar = "=" * 60
+    safe_reason = re.sub(r"\s+", " ", reason).strip()[:160]
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n{bar}\n")
+            f.write(f"TASK START: {description}\n")
+            f.write(f"SESSION: cli-{command}/{feature_id}\n")
+            f.write(f"TIME: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"{bar}\n")
+            f.write(
+                f"[GATE] feature={feature_id} command={command} verdict={verdict}"
+                f" level={level or '-'} reason={classify_reason(safe_reason)}\n"
+            )
+            if safe_reason:
+                f.write(f"[GATE-DETAIL] {safe_reason}\n")
+            f.write(f"[END] exit={exit_code} outcome={verdict} elapsed_sec={round(elapsed, 1)}\n")
+    except OSError:
+        pass          # 기록 실패가 판정을 가려선 안 된다 (TS-009 의 원칙)
 
 
 # ── 출력 헬퍼 ────────────────────────────────────────────────────────────────
@@ -132,6 +203,7 @@ def cmd_verify(args) -> int:
         print(f"[오류] 기능 ID '{args.feature_id}' 를 찾을 수 없습니다.")
         return 2
 
+    started = time.monotonic()
     result = verify_feature(args.project, features[idx], level=args.level)
     verdict = "통과" if result.ok else "거부"
     print(f"[{verdict}] {args.feature_id} (수준: {result.level})")
@@ -142,6 +214,18 @@ def cmd_verify(args) -> int:
         print("  근거 테스트:")
         for name in result.tagged_passed:
             print(f"    · {name}")
+
+    record_run(
+        getattr(args, "log", None),
+        feature_id=args.feature_id,
+        description=str(features[idx].get("description", "")),
+        command="verify",
+        verdict="accept" if result.ok else "reject",
+        reason=result.reason,
+        level=result.level,
+        exit_code=0 if result.ok else 1,
+        elapsed=time.monotonic() - started,
+    )
     return 0 if result.ok else 1
 
 
@@ -151,8 +235,20 @@ def cmd_mark(args) -> int:
     if idx < 0:
         print(f"[오류] 기능 ID '{args.feature_id}' 를 찾을 수 없습니다.")
         return 2
+    started = time.monotonic()
     applied, message = apply_flag(args.project, idx, passes=True)
     print(message)
+    record_run(
+        getattr(args, "log", None),
+        feature_id=args.feature_id,
+        description=str(features[idx].get("description", "")),
+        command="mark",
+        verdict="accept" if applied else "reject",
+        reason="" if applied else message,
+        level=os.environ.get("HARNESS_EVIDENCE_LEVEL", "feature"),
+        exit_code=0 if applied else 1,
+        elapsed=time.monotonic() - started,
+    )
     return 0 if applied else 1
 
 
@@ -162,8 +258,19 @@ def cmd_unmark(args) -> int:
     if idx < 0:
         print(f"[오류] 기능 ID '{args.feature_id}' 를 찾을 수 없습니다.")
         return 2
+    started = time.monotonic()
     applied, message = apply_flag(args.project, idx, passes=False)
     print(message)
+    # unmark 은 **게이트가 틀렸던 횟수**를 세는 지표다 — 통과시킨 뒤 회수한 사건.
+    record_run(
+        getattr(args, "log", None),
+        feature_id=args.feature_id,
+        description=str(features[idx].get("description", "")),
+        command="unmark",
+        verdict="revoke",
+        exit_code=0 if applied else 1,
+        elapsed=time.monotonic() - started,
+    )
     return 0 if applied else 1
 
 
@@ -208,7 +315,9 @@ def cmd_report(args) -> int:
     from harness.metrics import (
         discrimination_report,
         format_discrimination,
+        format_gate_stats,
         format_run_log,
+        gate_stats,
         run_log_stats,
     )
 
@@ -216,10 +325,13 @@ def cmd_report(args) -> int:
     if args.json:
         stats = run_log_stats(args.log)
         stats.pop("runs", None)
-        print(json.dumps({"discrimination": report, "run_log": stats},
-                         ensure_ascii=False, indent=2))
+        print(json.dumps(
+            {"discrimination": report, "run_log": stats, "gate": gate_stats(args.log)},
+            ensure_ascii=False, indent=2))
         return 0
     print(format_discrimination(report))
+    print()
+    print(format_gate_stats(gate_stats(args.log)))
     print()
     print(format_run_log(run_log_stats(args.log)))
     return 0
@@ -238,6 +350,12 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--project", default=DEFAULT_PROJECT, help="대상 프로젝트 루트")
 
+    # 판정을 내리는 명령은 실행 기록을 남긴다 (TS-015)
+    judging = argparse.ArgumentParser(add_help=False)
+    judging.add_argument("--log", default=DEFAULT_LOG, help="실행 기록 파일")
+    judging.add_argument("--no-log", dest="log", action="store_const", const=None,
+                         help="실행 기록을 남기지 않는다")
+
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("next", parents=[common], help="다음 미구현 기능과 태그 규약")
@@ -247,16 +365,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("feature_id")
     p.set_defaults(func=cmd_show)
 
-    p = sub.add_parser("verify", parents=[common], help="게이트 판정만 (플래그 변경 없음)")
+    p = sub.add_parser("verify", parents=[common, judging], help="게이트 판정만 (플래그 변경 없음)")
     p.add_argument("feature_id")
     p.add_argument("--level", choices=("suite", "feature", "step"), default=None)
     p.set_defaults(func=cmd_verify)
 
-    p = sub.add_parser("mark", parents=[common], help="게이트 통과 시에만 통과로 기록")
+    p = sub.add_parser("mark", parents=[common, judging], help="게이트 통과 시에만 통과로 기록")
     p.add_argument("feature_id")
     p.set_defaults(func=cmd_mark)
 
-    p = sub.add_parser("unmark", parents=[common], help="미완성으로 되돌림 (증거 제거)")
+    p = sub.add_parser("unmark", parents=[common, judging], help="미완성으로 되돌림 (증거 제거)")
     p.add_argument("feature_id")
     p.set_defaults(func=cmd_unmark)
 

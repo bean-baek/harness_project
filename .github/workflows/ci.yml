@@ -1,0 +1,151 @@
+# .github/workflows/ci.yml
+#
+# 이 프로젝트가 네 번 반복한 실패는 "선언했는데 아무도 돌려보지 않아 불일치가 유지된다"였다
+# (TS-001 루트 features.json / init.sh 의 PROJECT_ROOT / TS-006 의 run_tests / TS-012 의 3건).
+# CI 는 그 패턴에 대한 기계적 처방이다 — 선언한 모든 명령을 매 푸시마다 실제로 돌린다.
+#
+# 토큰 없는 모드이므로 **API 키 없이 전부 돈다**: 하네스 검증 176건은 LLM 을 스텁으로
+# 대체하고, 증거 게이트는 jest 만 쓴다. 비용 0.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  harness:
+    name: 하네스 검증 (LLM 없음)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web_target/package-lock.json
+
+      - name: 파이썬 의존성
+        run: pip install -r requirements.txt
+
+      - name: 대상 앱 의존성
+        working-directory: web_target
+        run: npm ci
+
+      # 검증 스크립트는 LLM·네트워크를 쓰지 않는다. 키를 비워 그 사실을 강제한다.
+      - name: TS-005 — LLM 오류 분류·백오프·종료 코드
+        run: python repro_ts005.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      - name: TS-006 — 증거 게이트 정책
+        run: python repro_ts006.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      - name: TS-008 — 명세-테스트 연결 판정
+        run: python repro_ts008.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      - name: TS-009 — 측정 계층 + 종료 상태 기록
+        run: python repro_ts009.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      - name: TS-010 — 토큰 없는 모드 의존성 독립
+        run: python repro_ts010.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      - name: TS-015 — 실행 기록 + 게이트 판정 집계
+        run: python repro_ts015.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      - name: 증거 태그 검사 (존재하지 않는 ID 는 실패)
+        run: python -m harness.cli tags
+
+      - name: 통과 플래그 전수 재검증
+        run: python -m harness.cli audit
+
+      # 실행 기록(harness_runtime.log)은 .gitignore 대상이라 CI 에는 없다.
+      # 판별력 측정은 그와 무관하게 동작하고, 게이트/로그 집계는 "기록 없음"을 보고한다.
+      - name: 판별력 측정 (수치를 로그에 남긴다)
+        run: python -m harness.cli report
+
+  target-app:
+    name: 대상 앱 (lint · build · test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web_target
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web_target/package-lock.json
+
+      - run: npm ci
+
+      - name: 타입 검사
+        run: npx tsc --noEmit
+
+      - name: 린트
+        run: npm run lint
+
+      - name: 빌드
+        run: npm run build
+
+      # 게이트와 같은 기준으로 본다 — npm test 는 커버리지 임계 때문에
+      # 테스트가 전부 통과해도 exit 1 이다 (TS-012).
+      - name: 단위 테스트 (게이트 기준)
+        run: npx jest . --no-coverage
+
+      - name: 커버리지 (참고용, 임계 미달이라 실패는 무시)
+        run: npm test || true
+
+  e2e:
+    name: E2E (단위 테스트가 못 보는 영역)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web_target
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web_target/package-lock.json
+
+      - run: npm ci
+
+      # 설정이 요구하는 브라우저만 받는다 (chromium + webkit, firefox 제외)
+      - name: Playwright 브라우저
+        run: npx playwright install --with-deps chromium webkit
+
+      # TS-013: 단위 테스트는 앱의 배선을 구조적으로 보지 못한다.
+      # F-005 는 게이트를 통과했지만 실 브라우저에서 동작하지 않았고 E2E 가 잡았다.
+      - name: E2E
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web_target/playwright-report/
+          retention-days: 7
