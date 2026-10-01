@@ -120,12 +120,8 @@ if [ -d "web_target" ]; then
   cd "$PROJECT_ROOT"
 fi
 
-# API 서버가 있으면 시작
-if [ -f "server/index.js" ] || [ -f "server/app.js" ]; then
-  log_info "API 서버 시작 중 (포트 $API_PORT)..."
-  node server/index.js &
-  API_PID=$!
-fi
+  # API 서버: server/ 는 web_target 으로 대체된 이전 아키텍처라 삭제했다.
+  # 로그인 등을 수동으로 확인하려면 web_target/mock-server.js 를 직접 실행한다.
 
 # ── 7. 헬스체크 ──────────────────────────────────────────────────────────────
 log_info "서버 기동 대기 중 (최대 30초)..."
@@ -169,7 +165,6 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}✅  개발 환경 준비 완료${NC}"
 echo -e "${GREEN}═══════════════════════════════════════${NC}"
 echo -e "   프론트엔드:  ${BLUE}http://localhost:$DEV_PORT${NC}"
-[ -n "$API_PID" ] && echo -e "   API 서버:    ${BLUE}http://localhost:$API_PORT${NC}"
 echo -e "   프로젝트:    $PROJECT_ROOT"
 echo -e "   로그 파일:   $PROJECT_ROOT/web_target/gemini-progress.txt"
 echo ""
