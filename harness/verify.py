@@ -377,6 +377,92 @@ def verify_feature(
     return verification
 
 
+# ── features.json 읽기/쓰기 + 게이트 적용 ───────────────────────────────────
+# 게이트 정책은 이 모듈이 **유일하게** 소유한다. langchain 도구(`tools.update_features`)와
+# 토큰 없는 CLI(`harness.cli`)가 같은 함수를 호출하므로 구현이 갈라지지 않는다.
+
+def features_path(project_root: str) -> Path:
+    return Path(project_root) / "features.json"
+
+
+def load_features(project_root: str) -> list[dict[str, Any]]:
+    """features.json 을 읽는다. 없으면 FileNotFoundError."""
+    return json.loads(features_path(project_root).read_text(encoding="utf-8"))
+
+
+def save_features(project_root: str, features: list[dict[str, Any]]) -> None:
+    features_path(project_root).write_text(
+        json.dumps(features, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def find_index(features: list[dict[str, Any]], feature_id: str) -> int:
+    """기능 ID 로 인덱스를 찾는다. 없으면 -1."""
+    for i, f in enumerate(features):
+        if str(f.get("id", "")).strip().upper() == feature_id.strip().upper():
+            return i
+    return -1
+
+
+def apply_flag(
+    project_root: str,
+    feature_index: int,
+    passes: bool,
+    require_evidence: bool | None = None,
+) -> tuple[bool, str]:
+    """features.json 의 통과 플래그를 **증거 게이트를 통과한 경우에만** 쓴다.
+
+    Returns:
+        (적용 여부, 사람이 읽을 메시지)
+
+    passes=True  → 전체 스위트 실행 + 기능 ID 태그 통과 테스트 요구 (TS-008)
+    passes=False → 증거 없이 허용하고 과거 증거를 제거한다
+    """
+    from datetime import datetime
+
+    if require_evidence is None:
+        require_evidence = getattr(config, "REQUIRE_TEST_EVIDENCE", True)
+
+    path = features_path(project_root)
+    if not path.exists():
+        return False, "[오류] features.json이 없습니다."
+    features = load_features(project_root)
+    if feature_index < 0 or feature_index >= len(features):
+        return False, f"[오류] 인덱스 {feature_index}가 범위를 벗어났습니다."
+
+    feature = features[feature_index]
+    name = feature.get("description", f"Feature #{feature_index}")
+    old_status = feature.get("passes", False)
+    verification: dict[str, Any] | None = None
+
+    if passes and require_evidence:
+        result = verify_feature(project_root, feature)
+        if not result.ok:
+            return False, (
+                f"[거부] '{name}': passes=true 를 반영하지 않았습니다.\n"
+                f"사유: {result.reason}\n"
+                f"현황: {result.summary()}"
+            )
+        verification = {
+            "verified_at": datetime.now().isoformat(timespec="seconds"),
+            "verified_by": "update_features/jest",
+            **result.to_dict(),
+        }
+
+    feature["passes"] = passes
+    if verification:
+        feature["verification"] = verification
+    elif not passes:
+        feature.pop("verification", None)
+
+    save_features(project_root, features)
+
+    evidence = f" (증거: {verification['summary']})" if verification else ""
+    if passes and not require_evidence:
+        evidence = " ⚠ 증거 게이트가 비활성(HARNESS_REQUIRE_TEST_EVIDENCE=false)"
+    return True, f"[완료] '{name}': {old_status} → {passes}{evidence}"
+
+
 def audit_features(
     project_root: str,
     features: list[dict[str, Any]],

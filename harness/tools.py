@@ -23,7 +23,7 @@ from typing import Literal
 from langchain_core.tools import tool
 
 import config
-from harness.verify import run_jest, verify_feature
+from harness.verify import apply_flag, run_jest, verify_feature
 
 
 # ── 도구 권한 계층 상수 ──────────────────────────────────────────────────────
@@ -288,53 +288,10 @@ def update_features(
     features.json 에 함께 기록됩니다. passes=False(미완성 표시)는 증거 없이 허용됩니다.
     기능을 삭제하거나 description을 변경하지 마십시오.
     """
-    features_path = Path(project_root) / "features.json"
-    if not features_path.exists():
-        return "[오류] features.json이 없습니다."
-    features = json.loads(features_path.read_text(encoding="utf-8"))
-    if feature_index >= len(features):
-        return f"[오류] 인덱스 {feature_index}가 범위를 벗어났습니다."
-
-    feature_name = features[feature_index].get("description", f"Feature #{feature_index}")
-    old_status = features[feature_index].get("passes", False)
-    verification: dict | None = None
-
-    # ── 증거 게이트 (TS-006 → TS-008) ───────────────────────────────────────
-    # passes=True 는 선언이 아니라 입증이어야 한다. 테스트 경로는 도구가 고정하고
-    # (에이전트가 쉬운 테스트만 골라 돌릴 수 없다), 판정은 '스위트 녹색'이 아니라
-    # **이 기능 ID 를 인용하는 통과 테스트의 존재**로 한다.
-    if passes and config.REQUIRE_TEST_EVIDENCE:
-        result = verify_feature(project_root, features[feature_index])
-
-        if not result.ok:
-            return (
-                f"[거부] '{feature_name}': passes=true 를 반영하지 않았습니다.\n"
-                f"사유: {result.reason}\n"
-                f"현황: {result.summary()}"
-            )
-
-        verification = {
-            "verified_at": datetime.now().isoformat(timespec="seconds"),
-            "verified_by": "update_features/jest",
-            **result.to_dict(),
-        }
-
-    features[feature_index]["passes"] = passes
-    if verification:
-        features[feature_index]["verification"] = verification
-    elif not passes:
-        # 미완성으로 되돌릴 때는 과거 증거를 남겨두지 않는다.
-        features[feature_index].pop("verification", None)
-
-    features_path.write_text(
-        json.dumps(features, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    evidence = f" (증거: {verification['summary']})" if verification else ""
-    if passes and not config.REQUIRE_TEST_EVIDENCE:
-        evidence = " ⚠ 증거 게이트가 비활성(HARNESS_REQUIRE_TEST_EVIDENCE=false)"
-    return f"[완료] '{feature_name}': {old_status} → {passes}{evidence}"
+    # 게이트 정책은 harness.verify 가 소유한다 — langchain 도구와 토큰 없는 CLI가
+    # 같은 구현을 공유해야 판정이 갈라지지 않는다 (TS-010).
+    _applied, message = apply_flag(project_root, feature_index, passes)
+    return message
 
 
 @tool

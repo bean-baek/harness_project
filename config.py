@@ -9,9 +9,14 @@ config.py
 from __future__ import annotations
 import os
 from pathlib import Path
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
+# python-dotenv 는 선택 의존성이다 — 토큰을 쓰지 않는 경로(증거 게이트/측정/CLI)는
+# API 키가 필요 없으므로 langchain·dotenv 없이도 동작해야 한다.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+except ImportError:                     # pragma: no cover
+    def load_dotenv(*_args, **_kwargs):  # type: ignore[misc]
+        return False
 
 # ── 경로 ─────────────────────────────────────────────────────────────────────
 BASE_DIR            = Path(__file__).resolve().parent

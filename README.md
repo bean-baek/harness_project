@@ -13,7 +13,7 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 | | |
 |---|---|
 | **결과물이다** | `harness/` — 에이전트 실행·검증·중단·재개를 관리하는 운영 계층 |
-| **결과물이다** | `troubleshooting/` — 무인 운영에서 실제로 터진 실패 모드 9건의 재현·원인·수정·검증 기록 |
+| **결과물이다** | `troubleshooting/` — 무인 운영에서 실제로 터진 실패 모드 10건의 재현·원인·수정·검증 기록 |
 | **결과물이 아니다** | `web_target/` — 투두 앱. 하네스를 시험하기 위한 **피험체**이자 벤치마크 과제 |
 
 `web_target` 의 기능 75개(`features.json`)는 목표가 아니라 **측정 수단**이다.
@@ -100,7 +100,28 @@ bash scripts/init.sh --install
 
 ## 4. 사용법
 
-### 4.1 기능 하나를 구현시킨다
+### 4.1 토큰 없는 모드 (권장) — Claude Code 세션이 추론, CLI가 강제
+
+유료 API를 호출하지 않는다. 추론은 이미 구독 비용을 낸 세션이 하고,
+통과 판정은 결정론적 CLI가 강제한다 (TS-010).
+
+```bash
+python -m harness.cli next           # 다음 기능 명세 + 태그 규약
+python -m harness.cli verify F-005   # 게이트 판정만 (플래그 변경 없음)
+python -m harness.cli mark F-005     # 게이트 통과 시에만 기록  (0 통과 / 1 거부 / 2 입력오류)
+python -m harness.cli audit          # 통과 플래그 전수 재검증
+python -m harness.cli report         # 판별력 + 실행 로그 측정
+```
+
+Claude Code 세션에서는 [.claude/skills/harness/SKILL.md](.claude/skills/harness/SKILL.md) 가
+절차(네 가지 불신 → 구현 → 태그 테스트 → 게이트 → 기록)를 안내한다.
+`langchain` / `langgraph` / API 키가 **없어도 동작한다** — 임포트 차단 테스트로 증명됨.
+
+왜 전부 마크다운으로 하지 않는가: 마크다운은 **권고만** 할 수 있다.
+"테스트를 먼저 실행하십시오"가 docstring 권고였을 때 에이전트는 무시하고 자가 채점했다(TS-006).
+절차는 문서에, **판정은 코드에** 둔다.
+
+### 4.2 유료 API 모드 — 무인 야간 실행이 필요할 때
 
 ```bash
 python main.py --task "사용자가 로그아웃할 수 있다" --project ./web_target
@@ -115,7 +136,7 @@ python main.py --task "사용자가 로그아웃할 수 있다" --project ./web_
 | `--no-stream` | off | 단계별 실시간 출력 비활성화 |
 | `--visualize` | off | 그래프를 `harness_graph.png` 로 저장 |
 
-### 4.2 무인 연속 실행 (나이트 시프트)
+#### 무인 연속 실행 (나이트 시프트)
 
 ```bash
 python night_shift.py
@@ -125,7 +146,7 @@ python night_shift.py
 기능당 최대 3회 시도, 작업당 30분 타임아웃, 전체 로그는 `harness_runtime.log`.
 기능별로 `feature-<ID>` 세션 ID 를 고정하므로 재시도 시 반성 메모리가 누적된다.
 
-### 4.3 종료 코드 — 실패의 책임 소재를 구분한다
+### 4.3 종료 코드 — 실패의 책임 소재를 구분한다 (유료 모드)
 
 | 코드 | 의미 | `night_shift` 의 반응 |
 |---|---|---|
@@ -240,6 +261,7 @@ python repro_ts005.py                      # LLM 오류 분류/백오프/종료 
 python repro_ts006.py                      # 증거 게이트 정책                 32/32
 python repro_ts008.py                      # 명세-테스트 연결 판정 로직       49/49
 python repro_ts009.py                      # 측정 계층 + 종료 상태 기록       36/36
+python repro_ts010.py                      # 토큰 없는 모드 의존성 독립        22/22
 cd web_target && npx jest . --no-coverage  # 대상 앱 스위트                   27/27
 ```
 
