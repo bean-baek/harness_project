@@ -16,3 +16,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-010](TS-010-tokenless-mode.md) | resolved | high | 하네스의 가치는 이미 토큰을 쓰지 않았다 — 유료 API를 추론 엔진에서 제거 | `harness/cli.py` |
 | [TS-011](TS-011-auth-guard-race-and-open-redirect.md) | resolved | high | 라우트 가드가 isLoading을 무시해 새로고침마다 로그아웃 + ?redirect= 오픈 리다이렉트 | `web_target/src/components/ProtectedRoute.tsx` |
 | [TS-012](TS-012-declared-but-dead-commands.md) | resolved | high | package.json이 광고하는 명령 3개(lint/build/test:e2e)가 전부 동작하지 않았다 | `web_target/package.json` |
+| [TS-013](TS-013-unit-tests-cannot-verify-route-table.md) | resolved | high | 단위 테스트가 자기가 만든 라우트를 검증해 F-005가 실 브라우저에서 전혀 동작하지 않았다 | `web_target/src/routes.ts` |

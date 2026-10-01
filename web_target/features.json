@@ -177,17 +177,17 @@
     "passes": true,
     "priority": 1,
     "verification": {
-      "verified_at": "2026-10-01T19:55:08",
+      "verified_at": "2026-10-02T00:34:06",
       "verified_by": "update_features/jest",
       "level": "feature",
       "suite": {
-        "total": 42,
-        "passed": 42,
+        "total": 51,
+        "passed": 51,
         "failed": 0,
-        "suites_total": 6,
+        "suites_total": 7,
         "suites_failed": 0
       },
-      "summary": "suite 42/42 passed | tagged 15 passed | steps 3/3 covered",
+      "summary": "suite 51/51 passed | tagged 24 passed | steps 3/3 covered",
       "evidence_tests": [
         "F-005: 인증되지 않은 사용자가 보호된 페이지 접근 시 로그인으로 리다이렉트 F-005.1 F-005.2: 비로그인 상태로 /dashboard 에 접속하면 /login 으로 이동한다",
         "F-005: 인증되지 않은 사용자가 보호된 페이지 접근 시 로그인으로 리다이렉트 F-005.3: 리다이렉트 후 원래 URL 이 ?redirect= 로 보존된다",
@@ -203,8 +203,14 @@
         "F-005: 리다이렉트 대상 검증 (오픈 리다이렉트 방어) F-005.3: safeRedirectTarget(\"javascript:alert(1)\") → \"/\"",
         "F-005: 리다이렉트 대상 검증 (오픈 리다이렉트 방어) F-005.3: safeRedirectTarget(\"\") → \"/\"",
         "F-005: 리다이렉트 대상 검증 (오픈 리다이렉트 방어) F-005.3: safeRedirectTarget(null) → \"/\"",
-        "F-005: 리다이렉트 대상 검증 (오픈 리다이렉트 방어) F-005.3: safeRedirectTarget(undefined) → \"/\""
+        "F-005: 리다이렉트 대상 검증 (오픈 리다이렉트 방어) F-005.3: safeRedirectTarget(undefined) → \"/\"",
+        "F-005: 앱이 선언한 보호 경로 전수 검증 F-005.1: 명세가 지목한 /dashboard 가 보호 경로 목록에 존재한다",
+        "F-005: 앱이 선언한 보호 경로 전수 검증 F-005.2: 비로그인 상태로 / 접근 시 /login 으로 이동한다",
+        "F-005: 앱이 선언한 보호 경로 전수 검증 F-005.2: 비로그인 상태로 /dashboard 접근 시 /login 으로 이동한다",
+        "F-005: 앱이 선언한 보호 경로 전수 검증 F-005.2: 비로그인 상태로 /profile 접근 시 /login 으로 이동한다",
+        "F-005: 앱이 선언한 보호 경로 전수 검증 F-005.2: 비로그인 상태로 /settings 접근 시 /login 으로 이동한다"
       ],
+      "evidence_tests_omitted": 4,
       "steps_covered": [
         1,
         2,
