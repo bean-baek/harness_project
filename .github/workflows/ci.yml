@@ -72,6 +72,11 @@ jobs:
         env:
           GOOGLE_API_KEY: ""
 
+      - name: TS-016 — 증거 커버리지 게이트 + 돌연변이 측정
+        run: python repro_ts016.py
+        env:
+          GOOGLE_API_KEY: ""
+
       - name: 증거 태그 검사 (존재하지 않는 ID 는 실패)
         run: python -m harness.cli tags
 

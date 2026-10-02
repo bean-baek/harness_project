@@ -180,6 +180,113 @@ def run_jest_json(project_root: str) -> tuple[dict[str, Any] | None, str]:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+# ── 증거가 실제로 소스를 실행하는가 (TS-016) ─────────────────────────────────
+#
+# TS-008 이후 증거는 "기능 ID 를 인용하는 통과 테스트"다. 그런데 **그 테스트가 아무것도
+# 실행하지 않아도 통과한다** — `test('F-006: x', () => expect(true).toBe(true))` 는
+# 완벽한 증거로 계수된다. 게이트는 이름만 보기 때문이다 (TS-008 이 남긴 주관성).
+#
+# 커버리지는 그 공백을 **정확하게** 막는다: 태그 테스트만 실행했을 때 비(非)테스트 소스를
+# 한 줄도 덮지 않으면 그 증거는 공허하다. 휴리스틱이 아니라 사실 판정이다.
+#
+# 비용 때문에 호출 위치가 중요하다. 기능별 커버리지는 jest 를 한 번 더 돌려야 하므로(약 9초)
+# `verify_feature` 안에 넣으면 `audit`/`report` 가 수십~수백 배 느려진다
+# (discrimination_report 는 75기능 × 3수준을 판정한다). 그래서 **플래그를 쓰는 순간**
+# (apply_flag)에만 수행한다 — 기능당 한 번이다.
+
+def feature_name_pattern(feature_id: str) -> str:
+    """jest --testNamePattern 용 정규식. `F-005` 가 `F-0051` 에 걸리지 않게 한다."""
+    return f"{re.escape(feature_id)}(?![0-9])"
+
+
+def tagged_test_files(project_root: str, feature_id: str) -> list[str]:
+    """해당 기능 태그가 있는 **단위 테스트 파일** 목록 (jest 범위 제한용)."""
+    from harness.tags import scan_tags
+    files = {
+        ref.file for ref in scan_tags(project_root)
+        if ref.feature_id == feature_id and ref.kind == "unit"
+    }
+    return sorted(files)
+
+
+def coverage_for_feature(
+    project_root: str,
+    feature_id: str,
+    top_n: int = 5,
+    test_files: list[str] | None = None,
+) -> tuple[dict[str, Any] | None, str]:
+    """해당 기능의 태그 테스트만 실행해 어떤 소스를 덮는지 측정한다.
+
+    Returns:
+        ({covered_statements, sources, files_touched}, 진단). 첫 값이 None 이면 측정 실패.
+
+    **파일 범위까지 제한해야 한다.** `--testNamePattern` 은 테스트 *실행*만 건너뛰고
+    테스트 파일은 전부 import 한다. 그래서 다른 파일들의 모듈 수준 import 가
+    커버리지에 섞여, 아무것도 실행하지 않는 공허한 테스트가 42 statements 를 덮은 것처럼
+    집계됐다(실측). 태그가 있는 파일만 인자로 넘겨 그 오염을 제거한다.
+
+    주의: 부분 실행이므로 전역 커버리지 임계(80%)를 반드시 끈다 — 끄지 않으면
+    임계 미달로 비정상 종료해 측정 자체가 실패한 것처럼 보인다.
+    """
+    launcher = jest_launcher(project_root)
+    if launcher is None:
+        return None, "[오류] jest 실행 파일을 찾을 수 없습니다."
+
+    if test_files is None:
+        test_files = tagged_test_files(project_root, feature_id)
+    if not test_files:
+        return None, f"[오류] {feature_id} 태그가 있는 단위 테스트 파일이 없습니다."
+
+    root = Path(project_root).resolve()
+    tmp_dir = tempfile.mkdtemp(prefix="harness-cov-")
+    timeout = config.TOOL_TIMEOUTS.get("run_tests", 120)
+    try:
+        subprocess.run(
+            [
+                *launcher,
+                *test_files,
+                "--rootDir", str(root),
+                "--testNamePattern", feature_name_pattern(feature_id),
+                "--coverage",
+                "--coverageReporters=json-summary",
+                f"--coverageDirectory={tmp_dir}",
+                "--coverageThreshold={}",
+            ],
+            cwd=project_root, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=timeout,
+        )
+        summary_path = Path(tmp_dir) / "coverage-summary.json"
+        if not summary_path.is_file():
+            return None, "[오류] 커버리지 요약이 생성되지 않았습니다."
+        data = json.loads(summary_path.read_text(encoding="utf-8"))
+    except subprocess.TimeoutExpired:
+        return None, f"[오류] 커버리지 측정 타임아웃 ({timeout}초)"
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"[오류] 커버리지 측정 실패: {exc}"
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    hits: list[tuple[str, int]] = []
+    for path, metrics in data.items():
+        if path == "total":
+            continue
+        covered = int(metrics.get("statements", {}).get("covered", 0))
+        if covered <= 0:
+            continue
+        name = Path(path).name
+        # 테스트 파일 자신은 증거가 아니다
+        if name.endswith((".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")):
+            continue
+        hits.append((name, covered))
+
+    hits.sort(key=lambda h: -h[1])
+    return {
+        "covered_statements": sum(c for _, c in hits),
+        "files_touched": len(hits),
+        "sources": [f"{n} ({c})" for n, c in hits[:top_n]],
+    }, ""
+
+
 # ── 태그 매칭 ────────────────────────────────────────────────────────────────
 
 def feature_tag_pattern(feature_id: str) -> re.Pattern[str]:
@@ -448,6 +555,25 @@ def apply_flag(
             "verified_by": "update_features/jest",
             **result.to_dict(),
         }
+
+        # 증거가 실제로 소스를 실행하는지 확인한다 (TS-016).
+        # 여기서만 수행한다 — 기능당 한 번. verify_feature 안에 넣으면 audit/report 가 멈춘다.
+        if getattr(config, "REQUIRE_EVIDENCE_COVERAGE", True):
+            cov, diag = coverage_for_feature(project_root, str(feature.get("id", "")))
+            if cov is None:
+                return False, (
+                    f"[거부] '{name}': 증거 커버리지를 측정할 수 없어 반영하지 않았습니다.\n"
+                    f"사유: {diag}"
+                )
+            if cov["covered_statements"] <= 0:
+                return False, (
+                    f"[거부] '{name}': 태그 테스트가 **소스를 한 줄도 실행하지 않습니다**.\n"
+                    f"사유: 이름만 맞는 공허한 증거입니다 "
+                    f"(예: expect(true).toBe(true)). 실제 구현을 호출하는 테스트가 필요합니다."
+                )
+            verification["evidence_sources"] = cov["sources"]
+            verification["covered_statements"] = cov["covered_statements"]
+            verification["summary"] += f" | 소스 {cov['covered_statements']} statements 실행"
 
     feature["passes"] = passes
     if verification:

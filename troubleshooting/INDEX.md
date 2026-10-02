@@ -19,3 +19,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-013](TS-013-unit-tests-cannot-verify-route-table.md) | resolved | high | 단위 테스트가 자기가 만든 라우트를 검증해 F-005가 실 브라우저에서 전혀 동작하지 않았다 | `web_target/src/routes.ts` |
 | [TS-014](TS-014-tag-points-at-wrong-feature.md) | resolved | high | 태그가 엉뚱한 기능을 가리켜도 게이트가 보지 못한다 — 피험체 결함은 어디까지 고치는가 | `harness/tags.py` |
 | [TS-015](TS-015-orphaned-measurement-after-mode-switch.md) | resolved | medium | 토큰 없는 모드로 옮기며 측정 계층의 절반이 고아가 됐다 — 기록자가 사라진 것을 몰랐다 | `harness/cli.py` |
+| [TS-016](TS-016-vacuous-evidence-passes-the-gate.md) | resolved | high | 아무것도 실행하지 않는 테스트가 완벽한 증거로 계수됐다 — 커버리지 게이트와 돌연변이 측정 | `harness/verify.py` |

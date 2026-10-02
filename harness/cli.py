@@ -27,6 +27,7 @@ harness/cli.py
   python -m harness.cli verify F-004          게이트 판정만 (플래그 변경 없음)
   python -m harness.cli mark F-004            게이트 통과 시에만 통과로 기록
   python -m harness.cli unmark F-004          미완성으로 되돌림 (증거 제거)
+  python -m harness.cli mutate F-005          증거가 실제로 무는지 측정 (느림)
   python -m harness.cli tags                  증거 태그가 옳은 기능을 가리키는지 검사
   python -m harness.cli report                판별력 + 실행 로그 측정
   python -m harness.cli audit                 현재 통과 플래그 전수 재검증
@@ -300,6 +301,22 @@ def cmd_audit(args) -> int:
     return 1 if bad else 0
 
 
+def cmd_mutate(args) -> int:
+    """증거가 실제로 무는지 돌연변이로 측정한다 (느리다 — 게이트가 아니다)."""
+    from harness.mutate import format_mutation, mutate_feature
+
+    features = load_features(args.project)
+    if find_index(features, args.feature_id) < 0:
+        print(f"[오류] 기능 ID '{args.feature_id}' 를 찾을 수 없습니다.")
+        return 2
+    report = mutate_feature(args.project, args.feature_id, max_files=args.max_files)
+    print(format_mutation(report))
+    if "error" in report:
+        return 2
+    # 생존한 변이가 있으면 1 — 증거에 구멍이 있다는 신호다 (차단은 하지 않는다)
+    return 1 if report["survived"] else 0
+
+
 def cmd_tags(args) -> int:
     """증거 태그가 옳은 기능을 가리키는지 검사한다 (보고만, 차단 없음)."""
     from harness.tags import format_tag_report, lint_tags, scan_tags
@@ -381,6 +398,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("audit", parents=[common], help="통과 플래그 전수 재검증")
     p.add_argument("--level", choices=("suite", "feature", "step"), default=None)
     p.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser("mutate", parents=[common],
+                       help="증거가 실제로 무는지 돌연변이로 측정 (느림, 게이트 아님)")
+    p.add_argument("feature_id")
+    p.add_argument("--max-files", type=int, default=2, dest="max_files",
+                   help="변이 대상 파일 수 (기본 2)")
+    p.set_defaults(func=cmd_mutate)
 
     p = sub.add_parser("tags", parents=[common], help="증거 태그가 옳은 기능을 가리키는지 검사")
     p.set_defaults(func=cmd_tags)

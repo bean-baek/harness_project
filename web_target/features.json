@@ -14,17 +14,17 @@
     "passes": true,
     "priority": 1,
     "verification": {
-      "verified_at": "2026-10-01T19:03:37",
+      "verified_at": "2026-10-02T02:47:29",
       "verified_by": "update_features/jest",
       "level": "feature",
       "suite": {
-        "total": 27,
-        "passed": 27,
+        "total": 51,
+        "passed": 51,
         "failed": 0,
-        "suites_total": 5,
+        "suites_total": 7,
         "suites_failed": 0
       },
-      "summary": "suite 27/27 passed | tagged 3 passed | steps 0/6 covered",
+      "summary": "suite 51/51 passed | tagged 3 passed | steps 0/6 covered | 소스 56 statements 실행",
       "evidence_tests": [
         "F-001: 이메일/비밀번호 로그인 유효한 자격증명으로 로그인 성공 시 onSuccess 콜백 호출",
         "F-001: 이메일/비밀번호 로그인 로그인 성공 시 localStorage에 토큰 저장",
@@ -38,7 +38,11 @@
         4,
         5,
         6
-      ]
+      ],
+      "evidence_sources": [
+        "LoginForm.tsx (56)"
+      ],
+      "covered_statements": 56
     }
   },
   {
@@ -55,17 +59,17 @@
     "passes": true,
     "priority": 1,
     "verification": {
-      "verified_at": "2026-10-01T19:03:47",
+      "verified_at": "2026-10-02T02:47:47",
       "verified_by": "update_features/jest",
       "level": "feature",
       "suite": {
-        "total": 27,
-        "passed": 27,
+        "total": 51,
+        "passed": 51,
         "failed": 0,
-        "suites_total": 5,
+        "suites_total": 7,
         "suites_failed": 0
       },
-      "summary": "suite 27/27 passed | tagged 3 passed | steps 0/5 covered",
+      "summary": "suite 51/51 passed | tagged 3 passed | steps 0/5 covered | 소스 55 statements 실행",
       "evidence_tests": [
         "F-002: 잘못된 자격증명 오류 처리 401 응답 시 \"이메일 또는 비밀번호\" 오류 메시지 표시",
         "F-002: 잘못된 자격증명 오류 처리 500 서버 오류 시 일반 오류 메시지 표시",
@@ -78,7 +82,11 @@
         3,
         4,
         5
-      ]
+      ],
+      "evidence_sources": [
+        "LoginForm.tsx (55)"
+      ],
+      "covered_statements": 55
     }
   },
   {
@@ -95,17 +103,17 @@
     "passes": true,
     "priority": 2,
     "verification": {
-      "verified_at": "2026-10-01T19:03:56",
+      "verified_at": "2026-10-02T02:48:05",
       "verified_by": "update_features/jest",
       "level": "feature",
       "suite": {
-        "total": 27,
-        "passed": 27,
+        "total": 51,
+        "passed": 51,
         "failed": 0,
-        "suites_total": 5,
+        "suites_total": 7,
         "suites_failed": 0
       },
-      "summary": "suite 27/27 passed | tagged 5 passed | steps 0/5 covered",
+      "summary": "suite 51/51 passed | tagged 5 passed | steps 0/5 covered | 소스 38 statements 실행",
       "evidence_tests": [
         "F-003: 이메일 형식 유효성 검사 @가 없는 이메일 입력 후 포커스 이탈 시 오류 표시",
         "F-003: 이메일 형식 유효성 검사 유효하지 않은 이메일이면 로그인 버튼 비활성화",
@@ -120,7 +128,11 @@
         3,
         4,
         5
-      ]
+      ],
+      "evidence_sources": [
+        "LoginForm.tsx (38)"
+      ],
+      "covered_statements": 38
     }
   },
   {
@@ -137,17 +149,17 @@
     "passes": true,
     "priority": 1,
     "verification": {
-      "verified_at": "2026-10-01T19:04:05",
+      "verified_at": "2026-10-02T02:48:23",
       "verified_by": "update_features/jest",
       "level": "feature",
       "suite": {
-        "total": 27,
-        "passed": 27,
+        "total": 51,
+        "passed": 51,
         "failed": 0,
-        "suites_total": 5,
+        "suites_total": 7,
         "suites_failed": 0
       },
-      "summary": "suite 27/27 passed | tagged 4 passed | steps 4/5 covered",
+      "summary": "suite 51/51 passed | tagged 4 passed | steps 4/5 covered | 소스 49 statements 실행",
       "evidence_tests": [
         "AuthContext F-004.5: logout 함수는 localStorage에서 auth_token을 제거해야 한다",
         "UserMenu F-004.2: 메뉴 버튼 클릭 시 드롭다운 메뉴가 열리고 닫혀야 합니다",
@@ -162,7 +174,12 @@
       ],
       "steps_uncovered": [
         1
-      ]
+      ],
+      "evidence_sources": [
+        "AuthContext.tsx (27)",
+        "UserMenu.tsx (22)"
+      ],
+      "covered_statements": 49
     }
   },
   {
@@ -177,7 +194,7 @@
     "passes": true,
     "priority": 1,
     "verification": {
-      "verified_at": "2026-10-02T00:34:06",
+      "verified_at": "2026-10-02T02:48:39",
       "verified_by": "update_features/jest",
       "level": "feature",
       "suite": {
@@ -187,7 +204,7 @@
         "suites_total": 7,
         "suites_failed": 0
       },
-      "summary": "suite 51/51 passed | tagged 24 passed | steps 3/3 covered",
+      "summary": "suite 51/51 passed | tagged 24 passed | steps 3/3 covered | 소스 41 statements 실행",
       "evidence_tests": [
         "F-005: 인증되지 않은 사용자가 보호된 페이지 접근 시 로그인으로 리다이렉트 F-005.1 F-005.2: 비로그인 상태로 /dashboard 에 접속하면 /login 으로 이동한다",
         "F-005: 인증되지 않은 사용자가 보호된 페이지 접근 시 로그인으로 리다이렉트 F-005.3: 리다이렉트 후 원래 URL 이 ?redirect= 로 보존된다",
@@ -215,7 +232,15 @@
         1,
         2,
         3
-      ]
+      ],
+      "evidence_sources": [
+        "ProtectedRoute.tsx (17)",
+        "LoginForm.tsx (13)",
+        "AuthContext.tsx (6)",
+        "LoadingSpinner.tsx (4)",
+        "routes.ts (1)"
+      ],
+      "covered_statements": 41
     }
   },
   {
@@ -372,17 +397,17 @@
     "passes": true,
     "priority": 2,
     "verification": {
-      "verified_at": "2026-10-01T19:03:27",
+      "verified_at": "2026-10-02T02:48:55",
       "verified_by": "update_features/jest",
       "level": "feature",
       "suite": {
-        "total": 27,
-        "passed": 27,
+        "total": 51,
+        "passed": 51,
         "failed": 0,
-        "suites_total": 5,
+        "suites_total": 7,
         "suites_failed": 0
       },
-      "summary": "suite 27/27 passed | tagged 2 passed | steps 2/2 covered",
+      "summary": "suite 51/51 passed | tagged 2 passed | steps 2/2 covered | 소스 15 statements 실행",
       "evidence_tests": [
         "DashboardPage F-018.1: renders the weekly completion chart section",
         "DashboardPage F-018.2: renders the chart summary with the most productive day"
@@ -390,7 +415,12 @@
       "steps_covered": [
         1,
         2
-      ]
+      ],
+      "evidence_sources": [
+        "WeeklyCompletionChart.tsx (9)",
+        "DashboardPage.tsx (6)"
+      ],
+      "covered_statements": 15
     }
   },
   {

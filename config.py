@@ -63,6 +63,13 @@ REQUIRE_TEST_EVIDENCE = os.environ.get(
 # 어느 수준이든 단계 커버리지는 측정해 features.json 에 기록한다.
 EVIDENCE_LEVEL = os.environ.get("HARNESS_EVIDENCE_LEVEL", "feature").lower()
 
+# ── 증거 커버리지 요구 (TS-016) ───────────────────────────────────────────────
+# 태그 테스트가 비(非)테스트 소스를 한 줄도 실행하지 않으면 공허한 증거다
+# (expect(true).toBe(true) 류). 플래그를 쓰는 순간에만 측정한다 — 기능당 한 번.
+REQUIRE_EVIDENCE_COVERAGE = os.environ.get(
+    "HARNESS_REQUIRE_EVIDENCE_COVERAGE", "true"
+).lower() == "true"
+
 # ── 도구 타임아웃 (초) ────────────────────────────────────────────────────────
 TOOL_TIMEOUTS = {
     "bash_command": 60,

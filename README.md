@@ -15,7 +15,7 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 | | |
 |---|---|
 | **결과물이다** | `harness/` — 에이전트 실행·검증·측정·중단을 관리하는 운영 계층 |
-| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **15건**의 재현·원인·수정·검증 기록 |
+| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **16건**의 재현·원인·수정·검증 기록 |
 | **결과물이 아니다** | `web_target/` — 투두 앱. 하네스를 시험하기 위한 **피험체**이자 벤치마크 과제 |
 
 `web_target` 의 기능 75개(`features.json`)는 목표가 아니라 **측정 수단**이다.
@@ -78,6 +78,7 @@ python -m harness.cli mark F-006     # 게이트 통과 시에만 기록  (0 통
 python -m harness.cli unmark F-006   # 미완성으로 되돌림 (증거 제거)
 python -m harness.cli audit          # 통과 플래그 전수 재검증
 python -m harness.cli tags           # 태그가 옳은 기능을 가리키는지 검사
+python -m harness.cli mutate F-005   # 증거가 실제로 무는지 측정 (느림, 게이트 아님)
 python -m harness.cli report         # 판별력 + 게이트 판정 집계 + 실행 로그
 ```
 
@@ -94,6 +95,10 @@ Claude Code 세션에서는 [.claude/skills/harness/SKILL.md](.claude/skills/har
 
 1. 스위트에 실패 테스트 0건 — 다른 기능을 깨뜨리지 않았다
 2. **해당 기능 ID 를 이름에 포함한 통과 테스트가 1개 이상**
+3. **그 태그 테스트가 비(非)테스트 소스를 1줄 이상 실행** (TS-016)
+
+3번이 없으면 `test('F-006: x', () => expect(true).toBe(true))` 가 완벽한 증거로
+계수된다 — 실제로 심어서 통과하는 것을 확인했다.
 
 **태그 규약** — 새로 만든 규칙이 아니라 `LoginForm.test.tsx` 가 이미 쓰던 관행이다:
 
@@ -117,7 +122,29 @@ test('F-005.3: 원래 URL 이 ?redirect= 로 보존된다', ...)                
 - 테스트 경로는 **도구가 `"."` 로 고정** — 쉬운 테스트만 골라 통과를 조작할 수 없다.
 - 엄격도: `HARNESS_EVIDENCE_LEVEL` = `suite` / `feature`(기본) / `step`.
   단계 커버리지는 어느 수준이든 **측정해 기록**한다.
-- 끄는 방법은 운영자에게만 있다: `HARNESS_REQUIRE_TEST_EVIDENCE=false` (디버깅 전용).
+- 끄는 방법은 운영자에게만 있다: `HARNESS_REQUIRE_TEST_EVIDENCE=false`,
+  `HARNESS_REQUIRE_EVIDENCE_COVERAGE=false` (디버깅 전용).
+- 증거가 실행한 소스 파일이 `evidence_sources` 로 기록된다 —
+  F-005 → `ProtectedRoute.tsx (17)`, `LoginForm.tsx (13)` 처럼 귀속이 드러난다.
+
+### 4.2 증거가 실제로 무는가 — 돌연변이 측정 (TS-016)
+
+```bash
+python -m harness.cli mutate F-005
+```
+
+커버리지는 "소스를 실행한다"까지만 보장한다. 실행하지만 아무것도 단정하지 않는 테스트는
+여전히 통과한다. 그걸 묻는 유일한 방법은 **결함을 일부러 넣어보는 것**이다.
+
+구현에 구문 유지 변이(비교 반전·논리 반전·조건 무력화 등)를 넣고, `tsc` 로 유효성을 확인한 뒤
+태그 테스트가 실패하는지 본다. 원본은 `finally` 에서 항상 복원한다.
+
+**게이트가 아니다** — 변이당 타입검사+테스트로 분 단위이므로 `mark` 마다 돌리면 작업이 멈춘다.
+또한 점수는 "이 기능의 테스트 품질"이 아니다: 변이 대상을 커버리지로 고르므로
+다른 기능이 소유한 파일이 섞인다. 보고서가 그 구분을 함께 출력한다.
+
+현재 F-005 점수는 **50%**(잡음 2 / 생존 2 / 폐기 2)이고, 생존 2건은 모두
+F-005 가 스쳐 지나가는 `LoginForm.tsx` 에 있다.
 
 ---
 
@@ -289,7 +316,7 @@ python -m harness.cli report
 기능 6/75 통과 — 전부 증거 기록 보유
 jest 51/51 (7 suites) · E2E 14 통과 / 4 보류 / 실패 0
 lint exit 0 · build exit 0 · tsc 오류 0
-하네스 회귀 205건 (repro_ts005/006/008/009/010/015) 전부 통과
+하네스 회귀 236건 (repro_ts005/006/008/009/010/015/016) 전부 통과
 ```
 
 | 기능 | 근거 테스트 | 단계 커버리지 |
@@ -312,6 +339,7 @@ python repro_ts008.py   # 명세-테스트 연결 판정               49/49
 python repro_ts009.py   # 측정 계층 + 종료 상태 기록          36/36
 python repro_ts010.py   # 토큰 없는 모드 의존성 독립          22/22
 python repro_ts015.py   # 실행 기록 + 게이트 판정 집계        29/29
+python repro_ts016.py   # 커버리지 게이트 + 돌연변이 측정      31/31
 
 cd web_target
 npm run lint       # exit 0
@@ -335,8 +363,9 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
   명시적으로 정해야 한다(현재는 어정쩡하게 방치).
 - Evaluator 의 LLM 채점과 `EVAL_WEIGHTS` / 75점 임계는 **근거 없는 상수**다.
   단, `features.json` 의 플래그는 그 점수에 의존하지 않는다 — 분리되어 있다.
-- 태그된 테스트가 **제대로** 검증하는지는 게이트가 보지 않는다.
-  `expect(true).toBe(true)` 에 태그를 붙이면 통과한다.
+- 태그된 테스트가 **제대로** 검증하는지는 게이트가 완전히 보지 못한다.
+  커버리지 요구로 공허한 테스트는 막았지만(TS-016), 실행하면서 단정하지 않는 테스트는
+  돌연변이 측정으로만 드러나고 그것은 게이트가 아니다 (느려서).
 - 커버리지 임계 80% 대비 실측 미달.
 
 ---
@@ -349,7 +378,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 
 | 잡 | 내용 |
 |---|---|
-| `하네스 검증` | `repro_ts005/006/008/009/010/015` (205건) + `cli tags` + `cli audit` + `cli report` |
+| `하네스 검증` | `repro_ts005/006/008/009/010/015/016` (236건) + `cli tags` + `cli audit` + `cli report` |
 | `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
@@ -374,6 +403,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-013 | 단위 테스트가 자기가 만든 라우트를 검증해 F-005 가 실 브라우저에서 전혀 동작하지 않았다 |
 | TS-014 | 태그가 엉뚱한 기능을 가리켜도 게이트가 보지 못한다 — 피험체 결함은 어디까지 고치는가 |
 | TS-015 | 토큰 없는 모드로 옮기며 측정 계층의 절반이 고아가 됐다 — 기록자가 사라진 것을 몰랐다 |
+| TS-016 | 아무것도 실행하지 않는 테스트가 완벽한 증거로 계수됐다 — 커버리지 게이트와 돌연변이 측정 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

@@ -97,6 +97,13 @@ def stub_jest(results, diag="", record=None):
     verify.run_jest_json = _stub
 
 
+# TS-016 의 커버리지 게이트도 스텁한다 — 이 스크립트가 검증하는 것은 게이트 **정책**이고,
+# 임시 프로젝트에는 node_modules 가 없어 실제 커버리지 측정이 불가능하다.
+# (스텁하지 않으면 측정 실패로 전부 거부되어 정책 검증 자체가 불가능해진다)
+verify.coverage_for_feature = lambda *a, **k: (
+    {"covered_statements": 12, "files_touched": 1, "sources": ["Thing.tsx (12)"]}, ""
+)
+
 original_run_jest_json = verify.run_jest_json
 original_flag = config.REQUIRE_TEST_EVIDENCE
 
