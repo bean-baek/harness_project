@@ -177,9 +177,14 @@ mutate.tagged_test_files = lambda project_root, feature_id: ["src/Thing.test.tsx
 mutate.coverage_for_feature = lambda project_root, feature_id, top_n=5, test_files=None: (
     {"covered_statements": 3, "files_touched": 1, "sources": ["Thing.tsx (3)"]}, ""
 )
-# 첫 변이는 유효+잡음, 두 번째는 유효+생존, 세 번째는 타입 검사 실패로 폐기
-type_results = [True, True, False]
-fail_results = [True, False]
+# TS-021 에서 검사 순서가 바뀌었다: jest 를 먼저 돌리고, **실패했을 때만** tsc 로
+# 유효성을 확인한다 (통과한 변이는 컴파일된 것이므로 tsc 가 불필요하다 — 변이당 1.9초 절감).
+# 그래서 스텁 대본도 그 순서를 따른다:
+#   1번 변이: jest 실패 → tsc 통과 → 잡음
+#   2번 변이: jest 통과 → 생존 (tsc 호출 안 됨)
+#   3번 변이: jest 실패 → tsc 실패 → 폐기
+fail_results = [True, False, True]
+type_results = [True, False]
 mutate._typechecks = lambda project_root: type_results.pop(0) if type_results else True
 mutate._tests_fail = lambda project_root, fid, files: fail_results.pop(0) if fail_results else False
 

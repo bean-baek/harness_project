@@ -17,7 +17,7 @@ trustworthy while nobody is watching.** This repository implements the apparatus
 | | |
 |---|---|
 | **Is the deliverable** | `harness/` — the operating layer that runs, verifies, measures, and halts the agent |
-| **Is the deliverable** | `troubleshooting/` — **20 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
+| **Is the deliverable** | `troubleshooting/` — **21 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
 | **Is NOT the deliverable** | `web_target/` — a todo app. The **test subject** and benchmark task for the harness |
 
 The 75 features in `web_target` (`features.json`) are not the goal; they are the
@@ -50,8 +50,8 @@ harness/              the operating layer — gate, measurement, runner, inspect
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
   nodes/agents.py     the 5 agent nodes (paid path)
-verification/         491 regression checks — one script per failure mode
-troubleshooting/      20 failure-mode records + evidence/ primary sources
+verification/         549 regression checks — one script per failure mode
+troubleshooting/      21 failure-mode records + evidence/ primary sources
 web_target/           the test-subject todo app (not the deliverable)
 .harness_memory/      Reflexion primary data — cannot be regenerated, kept
 docs/ scripts/ .claude/skills/harness/
@@ -187,13 +187,39 @@ Syntax-preserving mutations (invert comparisons, invert logic, neutralize condit
 applied to the implementation, validated with `tsc`, and the tagged tests are checked for
 failure. The original is always restored in a `finally` block.
 
-**This is not a gate** — each mutant costs a typecheck plus a test run, so running it on every
-`mark` would stall the work. The score is also *not* "this feature's test quality": mutation
-targets are chosen by coverage, so files owned by other features get mixed in. The report
-prints that distinction alongside the number.
+**It can be a gate (off by default, TS-021).** Setting
+`HARNESS_REQUIRE_MUTATION_EVIDENCE=true` makes `mark` require **at least one killed mutant.**
+That is a minimum of the same shape as TS-016's "at least one statement executed," not a
+ratio — mutation targets are chosen by coverage, so files owned by other features get mixed
+in, and applying a percentage to that mixture produces an ungrounded constant like
+`EVAL_WEIGHTS`.
 
-F-005 currently scores **50%** (killed 2 / survived 2 / discarded 2), and both survivors are in
-`LoginForm.tsx`, a file F-005 merely passes through.
+Three cases are distinguished: the tool failing to run is a **rejection** (a failed
+measurement is not a pass), **no mutable construct** is recorded without rejecting (absence of
+a measurement *target* differs from measurement *failure*), and zero kills is a **rejection**.
+
+It is off by default because of cost — `mark` goes from 11s to **42s** (measured).
+
+**Cost, measured warm** — measuring cold is off by 10x:
+
+| Step | Cold | Warm |
+|---|---|---|
+| `tsc --noEmit` | 10.8s | **1.9s** |
+| scoped jest | 18.4s | **2.8s** |
+
+jest runs **first**, and tsc only when jest fails — a mutant that passes compiled, so its
+validity needs no second question. Saves 1.9s per surviving mutant.
+
+**The operators were destroying syntax (TS-021).** The `>` → `>=` rule matched **190 sites**
+and only **3** were real comparisons — the rest were JSX (108) and generics (32), so
+`React.FC<Props>` became `React.FC<Props>=`. `if (X)` → `if (false)` broke on nested parens,
+producing `if (false))`. The mutations were testing **the compiler, not the tests**, and the
+"discarded" tally hid that fact.
+
+After the fix, F-005 scores **40%** (killed 2 / survived 3 / **discarded 0**) in 26.7s.
+Both kills are in F-005's own file (`ProtectedRoute.tsx`) and all three survivors are in
+`LoginForm.tsx`, which it merely passes through — **2 of 2 were killed in its own file.**
+Before the fix, two mutants in that file were discarded, so this was invisible.
 
 ### 4.3 Attaching it to another project (TS-017)
 
@@ -527,6 +553,7 @@ Grounds and methodology: [docs/comparison-revfactory.md](docs/comparison-revfact
 | `HARNESS_MAX_RETRY` | 5 | Reflexion iteration cap |
 | `HARNESS_EVAL_THRESHOLD` | 75 | Evaluator pass line |
 | `HARNESS_REQUIRE_TEST_EVIDENCE` | `true` | evidence gate (operator-only override) |
+| `HARNESS_REQUIRE_MUTATION_EVIDENCE` | `false` | mutation gate — requires ≥1 killed mutant (~27s per feature, TS-021) |
 | `HARNESS_EVIDENCE_LEVEL` | `feature` | `suite` / `feature` / `step` |
 | `HARNESS_PERSISTENT` / `DATABASE_URL` | `false` / (none) | checkpointer persistence (see note) |
 | `HARNESS_MEMORY_DIR` | `./.harness_memory` | episodic memory path |
@@ -565,7 +592,7 @@ match the app would be the worst choice**, so the signal was preserved instead (
 | `web_target/features.json` | Yes | 75 features + `passes` + `verification` evidence — **the source of truth** |
 | `features.draft.json` | No | output of `inspect --write-draft`. **Not a spec** — a human must move it over |
 | `web_target/src/routes.ts` | Yes | single source of truth for the protected-path list (shared by app and tests, TS-013) |
-| `troubleshooting/` | Yes | 20 failure modes + `evidence/` primary sources |
+| `troubleshooting/` | Yes | 21 failure modes + `evidence/` primary sources |
 | `.harness_memory/<session>/` | Yes | Reflexion records. Injected when re-run with the same session ID |
 | `.claude/skills/harness/` | Yes | the tokenless-mode procedure |
 | `harness_runtime.log` | No | night-shift output. Input data for `cli report` |
@@ -578,7 +605,7 @@ match the app would be the worst choice**, so the signal was preserved instead (
 6/75 features passing — all with recorded evidence
 jest 51/51 (7 suites) · E2E 14 passed / 4 deferred / 0 failed
 lint exit 0 · build exit 0 · 0 tsc errors
-491 harness regression checks (verification/repro_ts005/…/020) all passing
+549 harness regression checks (verification/repro_ts005/…/021) all passing
 Self-audit: 0 dead config · 0 orphan code · 0 unused imports
 78 paid-path smoke checks — the LangGraph graph driven end to end with zero tokens
 Measured on another project: main_portfolio (Vite, 0 tests) inspected cleanly — 3 blockers reported accurately
@@ -609,6 +636,7 @@ python verification/repro_ts017.py   # config externalization, runner abstractio
 python verification/repro_ts018.py   # paid-path smoke (LangGraph, zero tokens)        78/78
 python verification/repro_ts019.py   # dead-config / orphan-code recurrence guard      37/37
 python verification/repro_ts020.py   # evidence independence (self-supply, channels)   50/50
+python verification/repro_ts021.py   # mutation operators + mutation gate              58/58
 
 cd web_target
 npm run lint       # exit 0
@@ -663,7 +691,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/020` (491 checks) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/021` (549 checks) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -693,6 +721,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-018 | The paid path went unverified for six months — a smoke test found two real bugs immediately |
 | TS-019 | Three settings the docs advertised did nothing — dead config's second recurrence, plus 21 orphans |
 | TS-020 | The empty rung on the evidence ladder was independence, not depth — TS-013 generalized into policy |
+| TS-021 | The mutation operators tested the compiler, not the tests — 3 of 190 match sites were real comparisons |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

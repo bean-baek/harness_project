@@ -194,7 +194,7 @@
     "passes": true,
     "priority": 1,
     "verification": {
-      "verified_at": "2026-10-02T02:48:39",
+      "verified_at": "2026-10-02T22:46:40",
       "verified_by": "update_features/jest",
       "level": "feature",
       "suite": {
@@ -240,7 +240,18 @@
         "LoadingSpinner.tsx (4)",
         "routes.ts (1)"
       ],
-      "covered_statements": 41
+      "covered_statements": 41,
+      "mutation": {
+        "measured": true,
+        "killed": 2,
+        "survived": 3,
+        "invalid": 0,
+        "score": 0.4,
+        "targets": [
+          "ProtectedRoute.tsx (17)",
+          "LoginForm.tsx (13)"
+        ]
+      }
     }
   },
   {

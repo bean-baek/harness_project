@@ -500,7 +500,56 @@ def apply_flag(
                 )
             verification["evidence_sources"] = cov["sources"]
             verification["covered_statements"] = cov["covered_statements"]
-            verification["summary"] += f" | 소스 {cov['covered_statements']} statements 실행"
+            verification["summary"] += (
+                f" | 소스 {cov['covered_statements']} statements 실행"
+            )
+
+        # ── 증거가 결함을 **감지하는가** (TS-021) ─────────────────────────────
+        #
+        # 커버리지는 "소스를 실행한다"까지만 보장한다. 실행하면서 아무것도 단정하지
+        # 않는 테스트는 여전히 통과한다. 그걸 묻는 유일한 방법은 결함을 넣어보는 것이다.
+        #
+        # 기준은 **"유효한 변이 1개 이상을 잡는다"** — TS-016 의 "소스 1줄 이상 실행"과
+        # 같은 모양의 최솟값이다. 비율(예: 80%)을 쓰지 않는 이유: 변이 대상을 커버리지로
+        # 고르므로 다른 기능이 소유한 파일이 섞이고, 그 혼합에 비율을 적용하면
+        # `EVAL_WEIGHTS` 와 같은 근거 없는 상수가 된다. 점수와 귀속은 보고에 남긴다.
+        #
+        # 기본값이 false 인 이유: 기능당 약 27초다 (실측). 켜면 `mark` 가 그만큼 느려진다.
+        if getattr(config, "REQUIRE_MUTATION_EVIDENCE", False):
+            from harness.mutate import mutate_feature
+
+            report = mutate_feature(project_root, str(feature.get("id", "")))
+            if "error" in report:
+                # 도구가 돌지 않은 것은 '통과'가 아니다 (TS-016 의 규칙)
+                return False, (
+                    f"[거부] '{name}': 돌연변이를 측정할 수 없어 반영하지 않았습니다.\n"
+                    f"사유: {report['error']}"
+                )
+            attempted = report["killed"] + report["survived"] + report["invalid"]
+            if attempted == 0:
+                # **측정 실패가 아니라 측정 대상 부재**다. 변이할 구문이 없는 코드는
+                # 있을 수 있고(상수 선언만 있는 모듈 등), 그것을 거부하면 거짓 거부가 된다.
+                # 도구 고장(위의 error)과 구분해 기록만 남긴다.
+                verification["mutation"] = {
+                    "measured": False,
+                    "reason": "변이를 적용할 구문이 없습니다 (비교·논리·조건·불리언 없음)",
+                }
+            elif report["killed"] <= 0:
+                return False, (
+                    f"[거부] '{name}': 태그 테스트가 **주입한 결함을 하나도 잡지 못했습니다**.\n"
+                    f"사유: 유효한 변이 {report['killed'] + report['survived']}건 중 "
+                    f"잡음 0건 — 소스를 실행하지만 단정하지 않는 증거입니다.\n"
+                    f"현황: {', '.join(report['sources'])}"
+                )
+            else:
+                verification["mutation"] = {
+                    "measured": True,
+                    "killed": report["killed"],
+                    "survived": report["survived"],
+                    "invalid": report["invalid"],
+                    "score": report["score"],
+                    "targets": report["sources"],
+                }
 
     feature["passes"] = passes
     if verification:

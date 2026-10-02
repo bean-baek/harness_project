@@ -43,13 +43,24 @@ from harness.verify import (
 
 #: 변이 규칙 — (이름, 찾을 정규식, 바꿀 문자열).
 #: 전부 **구문을 유지하는** 치환이다. 그래도 타입 검사로 다시 확인한다.
-MUTATIONS: tuple[tuple[str, str, str], ...] = (
+#:
+#: `None` 치환은 전용 적용 함수가 처리한다 (정규식으로 괄호를 균형 맞출 수 없다).
+MUTATIONS: tuple[tuple[str, str, str | None], ...] = (
     ("비교 반전 (=== → !==)", r"===", "!=="),
     ("비교 반전 (!== → ===)", r"!==", "==="),
     ("논리 반전 (&& → ||)", r"&&", "||"),
-    ("경계 이동 (> → >=)", r"(?<![<>=!])>(?![=>])", ">="),
+    # TS-021: 이전 패턴 `(?<![<>=!])>(?![=>])` 는 **190곳**에 매칭됐고 그중 진짜 비교는
+    # **3곳**뿐이었다. 나머지는 JSX 태그(108곳)와 제네릭(32곳)이어서 치환하면
+    # `React.FC<Props>` 가 `React.FC<Props>=` 가 되는 **구문 파괴**였다.
+    # 변이가 테스트를 시험하는 게 아니라 컴파일러를 시험했고, '폐기' 집계가
+    # 그 사실을 가렸다. 공백을 양쪽에 요구하면 `a > b` 만 남는다 —
+    # `=>` 는 `>` 앞이 `=` 이므로 자동으로 제외된다.
+    ("경계 이동 (a > b → a >= b)", r"(?<=\s)>(?=\s)", ">="),
     ("불리언 반전 (true → false)", r"\btrue\b", "false"),
-    ("조건 무력화 (if (X) → if (false))", r"if \(([^)]{1,80})\)", "if (false)"),
+    # TS-021: 이전 패턴 `if \(([^)]{1,80})\)` 는 중첩 괄호에서 깨졌다 —
+    # `if (!re.test(email))` → `if (false))` 로 괄호가 남았다 (26곳 중 5곳).
+    # 정규식은 괄호 균형을 맞출 수 없으므로 전용 적용 함수로 옮겼다.
+    ("조건 무력화 (if (X) → if (false))", r"\bif\s*\(", None),
 )
 
 #: 파일 하나에서 시도할 최대 변이 수 — 시간 때문에 제한한다
@@ -111,6 +122,42 @@ def _candidate_lines(text: str, pattern: str) -> list[int]:
     return hits
 
 
+def neutralize_condition(line: str) -> str | None:
+    """`if (…)` 의 조건을 `false` 로 바꾼다 — **괄호를 세어** 균형을 지킨다.
+
+    정규식으로 할 수 없는 이유 (TS-021): `if \\(([^)]{1,80})\\)` 는 첫 `)` 에서
+    멈추므로 `if (!re.test(email))` 를 `if (false))` 로 만들어 괄호를 남겼다.
+    매칭 26곳 중 5곳이 그랬다. 문자를 세는 것이 정확하고 더 짧다.
+
+    문자열 리터럴 안의 괄호도 건너뛴다 — `if (s === "a)b")` 같은 경우.
+    닫는 괄호를 찾지 못하면(줄이 바뀌는 조건) `None` 을 돌려 건너뛴다.
+    """
+    m = re.search(r"\bif\s*\(", line)
+    if m is None:
+        return None
+    open_at = m.end() - 1               # '(' 의 위치
+    depth = 0
+    quote: str | None = None
+    for i in range(open_at, len(line)):
+        ch = line[i]
+        if quote is not None:
+            if ch == "\\":
+                continue
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "\"'`":
+            quote = ch
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return line[:open_at] + "(false)" + line[i + 1:]
+    return None                        # 조건이 여러 줄에 걸쳐 있다 — 건드리지 않는다
+
+
 def mutate_feature(
     project_root: str,
     feature_id: str,
@@ -158,20 +205,35 @@ def mutate_feature(
                     continue
                 lineno = lines[0]
                 src = original.split("\n")
-                src[lineno - 1] = re.sub(pattern, replacement, src[lineno - 1], count=1)
+                if replacement is None:
+                    mutated_line = neutralize_condition(src[lineno - 1])
+                    if mutated_line is None:
+                        continue        # 괄호가 줄을 넘는다 — 건드리지 않는다
+                else:
+                    mutated_line = re.sub(pattern, replacement, src[lineno - 1], count=1)
+                if mutated_line == src[lineno - 1]:
+                    continue            # 아무것도 바뀌지 않았다 — 변이가 아니다
+                src[lineno - 1] = mutated_line
                 target.write_text("\n".join(src), encoding="utf-8")
                 applied += 1
                 try:
+                    # 검사 순서가 비용을 결정한다 (TS-021).
+                    #
+                    # 실측(웜 캐시): 범위 jest 2.7초, tsc 1.9초.
+                    # jest 를 **먼저** 돌리면 통과한 변이(=생존)는 tsc 를 건너뛸 수 있다 —
+                    # 통과했다는 것은 컴파일됐다는 뜻이므로 유효성을 다시 물을 필요가 없다.
+                    # tsc 는 jest 가 **실패했을 때만** 필요하다: '테스트가 잡았다'와
+                    # '애초에 컴파일되지 않았다'를 구분하기 위해서다.
+                    failed = _tests_fail(project_root, feature_id, test_files)
+                    if not failed:
+                        results.append(MutantResult(rule, rel, lineno, "survived",
+                                                    "테스트가 이 결함을 잡지 못했다"))
+                        continue
                     if not _typechecks(project_root):
                         results.append(MutantResult(rule, rel, lineno, "invalid",
-                                                    "타입 검사 실패 — 폐기"))
+                                                    "타입/구문 검사 실패 — 폐기"))
                         continue
-                    killed = _tests_fail(project_root, feature_id, test_files)
-                    results.append(MutantResult(
-                        rule, rel, lineno,
-                        "killed" if killed else "survived",
-                        "" if killed else "테스트가 이 결함을 잡지 못했다",
-                    ))
+                    results.append(MutantResult(rule, rel, lineno, "killed"))
                 finally:
                     target.write_text(original, encoding="utf-8")
         finally:

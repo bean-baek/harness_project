@@ -67,6 +67,17 @@ REQUIRE_EVIDENCE_COVERAGE = os.environ.get(
     "HARNESS_REQUIRE_EVIDENCE_COVERAGE", "true"
 ).lower() == "true"
 
+# ── 증거가 결함을 감지하는가 (TS-021) ────────────────────────────────────────
+# 커버리지는 "소스를 실행한다"까지만 보장한다. 실행하면서 단정하지 않는 테스트는
+# 통과한다. 결함을 주입해 태그 테스트가 **1개 이상 잡는지** 확인한다.
+#
+# 기본값 false — 기능당 약 27초다(실측: 변이 5건 × (jest 2.7초 + 필요 시 tsc 1.9초)).
+# 켜면 `mark` 가 그만큼 느려지므로 운영자가 선택한다. 끈 상태에서도
+# `cli mutate <기능>` 으로 언제든 측정할 수 있다.
+REQUIRE_MUTATION_EVIDENCE = os.environ.get(
+    "HARNESS_REQUIRE_MUTATION_EVIDENCE", "false"
+).lower() == "true"
+
 # ── 도구 타임아웃 (초) ────────────────────────────────────────────────────────
 TOOL_TIMEOUTS = {
     "bash_command": 60,

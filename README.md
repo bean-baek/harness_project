@@ -17,7 +17,7 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 | | |
 |---|---|
 | **결과물이다** | `harness/` — 에이전트 실행·검증·측정·중단을 관리하는 운영 계층 |
-| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **20건**의 재현·원인·수정·검증 기록 |
+| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **21건**의 재현·원인·수정·검증 기록 |
 | **결과물이 아니다** | `web_target/` — 투두 앱. 하네스를 시험하기 위한 **피험체**이자 벤치마크 과제 |
 
 `web_target` 의 기능 75개(`features.json`)는 목표가 아니라 **측정 수단**이다.
@@ -49,8 +49,8 @@ harness/              운영 계층 — 게이트·측정·런너·검수 (결�
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
   nodes/agents.py     5개 에이전트 노드 (유료 경로)
-verification/         회귀 검증 491건 — 실패 모드 하나당 스크립트 하나
-troubleshooting/      실패 모드 20건 기록 + evidence/ 1차 자료
+verification/         회귀 검증 549건 — 실패 모드 하나당 스크립트 하나
+troubleshooting/      실패 모드 21건 기록 + evidence/ 1차 자료
 web_target/           피험체 투두 앱 (결과물 아님)
 .harness_memory/      Reflexion 1차 자료 — 재생성 불가, 보존
 docs/ scripts/ .claude/skills/harness/
@@ -180,12 +180,36 @@ python -m harness.cli mutate F-005
 구현에 구문 유지 변이(비교 반전·논리 반전·조건 무력화 등)를 넣고, `tsc` 로 유효성을 확인한 뒤
 태그 테스트가 실패하는지 본다. 원본은 `finally` 에서 항상 복원한다.
 
-**게이트가 아니다** — 변이당 타입검사+테스트로 분 단위이므로 `mark` 마다 돌리면 작업이 멈춘다.
-또한 점수는 "이 기능의 테스트 품질"이 아니다: 변이 대상을 커버리지로 고르므로
-다른 기능이 소유한 파일이 섞인다. 보고서가 그 구분을 함께 출력한다.
+**게이트로 쓸 수 있다 (기본은 꺼짐, TS-021).** `HARNESS_REQUIRE_MUTATION_EVIDENCE=true`
+로 켜면 `mark` 가 **유효한 변이 1개 이상을 잡는지** 요구한다. TS-016 의 "소스 1줄 이상
+실행"과 같은 모양의 최솟값이며 비율이 아니다 — 변이 대상을 커버리지로 고르므로 다른 기능이
+소유한 파일이 섞이고, 그 혼합에 비율을 적용하면 `EVAL_WEIGHTS` 와 같은 근거 없는 상수가 된다.
 
-현재 F-005 점수는 **50%**(잡음 2 / 생존 2 / 폐기 2)이고, 생존 2건은 모두
-F-005 가 스쳐 지나가는 `LoginForm.tsx` 에 있다.
+세 경우를 구분한다: 도구가 돌지 않으면 **거부**(측정 실패는 통과가 아니다), 변이할 구문이
+없으면 **기록만**(측정 **대상 부재**는 측정 **실패**와 다르다), 잡음 0건이면 **거부**.
+
+기본값이 꺼짐인 이유는 비용이다 — `mark` 가 11초에서 **42초**로 늘어난다(실측).
+
+**비용 실측 (웜 캐시)** — 콜드로 재면 10배 틀린다:
+
+| 단계 | 콜드 | 웜 |
+|---|---|---|
+| `tsc --noEmit` | 10.8초 | **1.9초** |
+| 범위 jest | 18.4초 | **2.8초** |
+
+jest 를 **먼저** 돌리고 tsc 는 실패했을 때만 돌린다 — 통과한 변이는 컴파일된 것이므로
+유효성을 다시 물을 필요가 없다. 생존 변이당 1.9초 절감.
+
+**연산자가 구문을 파괴하고 있었다 (TS-021).** `>` → `>=` 규칙이 **190곳**에 매칭됐고
+진짜 비교는 **3곳**뿐이었다 — 나머지는 JSX(108곳)와 제네릭(32곳)이라
+`React.FC<Props>` 가 `React.FC<Props>=` 가 됐다. `if (X)` → `if (false)` 는 중첩 괄호에서
+`if (false))` 로 깨졌다. 변이가 테스트를 시험하는 게 아니라 **컴파일러를 시험했고**,
+'폐기' 집계가 그 사실을 가렸다.
+
+수정 후 F-005: **점수 40%** (잡음 2 / 생존 3 / **폐기 0**), 26.7초.
+잡음 2건은 전부 F-005 자기 파일(`ProtectedRoute.tsx`)이고 생존 3건은 전부 스쳐 지나가는
+`LoginForm.tsx` 다 — **자기 파일에서는 2/2 전부 잡혔다.** 수정 전에는 그 파일의 변이 2건이
+폐기여서 이 사실이 보이지 않았다.
 
 
 ### 4.3 다른 프로젝트에 붙이기 (TS-017)
@@ -507,6 +531,7 @@ python -m harness.cli report
 | `HARNESS_MAX_RETRY` | 5 | Reflexion 반복 상한 |
 | `HARNESS_EVAL_THRESHOLD` | 75 | Evaluator 합격선 |
 | `HARNESS_REQUIRE_TEST_EVIDENCE` | `true` | 증거 게이트 (운영자 전용 차단 해제) |
+| `HARNESS_REQUIRE_MUTATION_EVIDENCE` | `false` | 돌연변이 게이트 — 잡음 1건 이상 요구 (기능당 약 27초, TS-021) |
 | `HARNESS_EVIDENCE_LEVEL` | `feature` | `suite` / `feature` / `step` |
 | `HARNESS_PERSISTENT` / `DATABASE_URL` | `false` / (없음) | 체크포인터 영속화 (아래 주의) |
 | `HARNESS_MEMORY_DIR` | `./.harness_memory` | 에피소드 메모리 경로 |
@@ -545,7 +570,7 @@ python -m harness.cli report
 | `web_target/features.json` | O | 기능 75개 + `passes` + `verification` 증거 — **진실의 원천** |
 | `features.draft.json` | X | `inspect --write-draft` 산출물. **명세가 아니다** — 사람이 옮겨야 효력 |
 | `web_target/src/routes.ts` | O | 보호 경로 목록의 단일 출처 (앱과 테스트가 공유, TS-013) |
-| `troubleshooting/` | O | 실패 모드 20건 + `evidence/` 1차 자료 |
+| `troubleshooting/` | O | 실패 모드 21건 + `evidence/` 1차 자료 |
 | `.harness_memory/<session>/` | O | Reflexion 반성 기록. 같은 세션 ID 로 재실행 시 주입된다 |
 | `.claude/skills/harness/` | O | 토큰 없는 모드의 절차 |
 | `harness_runtime.log` | X | 나이트 시프트 출력. `cli report` 의 입력 데이터 |
@@ -558,7 +583,7 @@ python -m harness.cli report
 기능 6/75 통과 — 전부 증거 기록 보유
 jest 51/51 (7 suites) · E2E 14 통과 / 4 보류 / 실패 0
 lint exit 0 · build exit 0 · tsc 오류 0
-하네스 회귀 491건 (verification/repro_ts005/…/020) 전부 통과
+하네스 회귀 549건 (verification/repro_ts005/…/021) 전부 통과
 자기 감사: 죽은 설정 0 · 고아 코드 0 · 미사용 임포트 0
 유료 경로 스모크 78건 — LangGraph 그래프를 토큰 0 으로 끝까지 실행
 다른 프로젝트 실측: main_portfolio(Vite, 테스트 0개) 검수 통과 — 막는 사유 3건 정확히 보고
@@ -589,6 +614,7 @@ python verification/repro_ts017.py   # 설정 외부화·런너 추상화·검�
 python verification/repro_ts018.py   # 유료 경로 스모크 (LangGraph, 토큰 0)   78/78
 python verification/repro_ts019.py   # 죽은 설정·고아 코드 재발 방지          37/37
 python verification/repro_ts020.py   # 증거 독립성 (자급 판정·채널 수)        50/50
+python verification/repro_ts021.py   # 변이 연산자 + 돌연변이 게이트          58/58
 
 cd web_target
 npm run lint       # exit 0
@@ -641,7 +667,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 
 | 잡 | 내용 |
 |---|---|
-| `하네스 검증` | `verification/repro_ts005/…/020` (491건) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `하네스 검증` | `verification/repro_ts005/…/021` (549건) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
@@ -671,6 +697,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-018 | 유료 경로가 6개월간 검증 없이 방치됐다 — 스모크 테스트가 즉시 버그 2건을 찾아냈다 |
 | TS-019 | 문서가 광고하는 설정 3개가 아무 일도 하지 않았다 — 죽은 설정의 두 번째 재발 + 고아 코드 21건 |
 | TS-020 | 증거 사다리의 빈 칸은 깊이가 아니라 독립성이었다 — TS-013 을 정책으로 일반화 |
+| TS-021 | 변이 연산자가 테스트를 시험하지 않고 컴파일러를 시험했다 — 190곳 중 3곳만 진짜 비교 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 
