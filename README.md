@@ -17,7 +17,7 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 | | |
 |---|---|
 | **결과물이다** | `harness/` — 에이전트 실행·검증·측정·중단을 관리하는 운영 계층 |
-| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **22건**의 재현·원인·수정·검증 기록 |
+| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **23건**의 재현·원인·수정·검증 기록 |
 | **결과물이 아니다** | `web_target/` — 투두 앱. 하네스를 시험하기 위한 **피험체**이자 벤치마크 과제 |
 
 `web_target` 의 기능 75개(`features.json`)는 목표가 아니라 **측정 수단**이다.
@@ -49,8 +49,8 @@ harness/              운영 계층 — 게이트·측정·런너·검수 (결�
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
   nodes/agents.py     5개 에이전트 노드 (유료 경로)
-verification/         회귀 검증 617건 — 실패 모드 하나당 스크립트 하나
-troubleshooting/      실패 모드 22건 기록 + evidence/ 1차 자료
+verification/         회귀 검증 661건 — 실패 모드 하나당 스크립트 하나
+troubleshooting/      실패 모드 23건 기록 + evidence/ 1차 자료
 web_target/           피험체 투두 앱 (결과물 아님)
 .harness_memory/      Reflexion 1차 자료 — 재생성 불가, 보존
 docs/ scripts/ .claude/skills/harness/
@@ -246,8 +246,35 @@ jest 를 **먼저** 돌리고 tsc 는 실패했을 때만 돌린다 — 통과�
 점수가 내려간 것이 개선이다 — 3표본의 40%는 앞머리에 편향된 **과대평가**였고,
 표본을 10 → 16 으로 늘려도 33%로 안정한다.
 
-**새로 드러난 것**: `LoginForm.tsx:32·89·188` 생존(퍼뜨린 표본이 처음 도달), 그리고
-`PROTECTED_PATHS` 의 `/`·`/profile`·`/settings` 가 **테스트로 고정되어 있지 않다**는 사실.
+**그 생존을 "테스트가 약하다"로 읽고 고치려 했다 — 틀렸다 (TS-023).**
+
+F-005 의 명세는 **`/dashboard` 만 지목한다.** `/`·`/profile`·`/settings` 는 어디에도 없다.
+앱이 명세를 넘어 4개를 보호하도록 구현한 것이다. 그 3개를 테스트로 고정하면
+**명세에 없는 것을 단정하는 테스트**가 되고, 그것은 §8 이 '측정 도구 오류'로 분류해
+고쳤던 패턴(TS-014)이며 현재 구현을 명세로 승격시키는 순환이다.
+
+**측정 도구가 나를 그 순환으로 밀어넣고 있었다.** 생존을 한 종류로 취급했기 때문이다.
+
+| 생존의 의미 | 올바른 조치 |
+|---|---|
+| 명세가 요구한다 | **증거의 공백** — 단정을 추가한다 |
+| 명세가 요구하지 않는다 | **명세의 공백** — 테스트를 건드리면 TS-014 다 |
+
+`spec_names()` 가 그 구분을 **사실로** 판정한다 — 멤버 문자열이 경로 경계와 함께 명세에
+있는가. 경계를 **ASCII 로 한정**하는 것이 핵심이다: `\w` 를 쓰면 `/dashboard에 접속한다` 의
+`에` 가 단어 문자라 **전부 미매칭**되고, 경계를 아예 두지 않으면 멤버 `/` 가
+`?redirect=/dashboard` 에 오매칭되어 **전부 '명세에 있음'** 이 된다.
+
+줄 변이에는 적용하지 않는다 — 줄에는 명세에서 찾을 이름이 없으므로 **판정할 사실이 없다.**
+명세가 비어 있으면 전부 명세 밖으로 두고 점수를 내지 않는다(요구의 근거가 없다).
+
+최종 F-005: **점수 50%** (잡음 3 / 생존 3 / 명세 범위 밖 3 / 타입이 잡음 1).
+남은 생존 3건은 전부 `LoginForm.tsx` 의 줄 변이이고 그 파일의 검증 책임은 F-001~003 에 있다.
+**F-005 의 컬렉션 증거에는 진짜 공백이 없다.**
+
+이 프로젝트에서 **측정값을 하나의 수로 뭉개 조치가 틀린 것이 세 번째**다 —
+남의 파일이 섞인 돌연변이 점수(TS-016), '폐기'에 묻힌 타입 감지(TS-022),
+두 종류가 섞인 생존(TS-023). 수치는 **조치가 갈리는 지점마다 쪼개야 한다.**
 
 
 ### 4.3 다른 프로젝트에 붙이기 (TS-017)
@@ -608,7 +635,7 @@ python -m harness.cli report
 | `web_target/features.json` | O | 기능 75개 + `passes` + `verification` 증거 — **진실의 원천** |
 | `features.draft.json` | X | `inspect --write-draft` 산출물. **명세가 아니다** — 사람이 옮겨야 효력 |
 | `web_target/src/routes.ts` | O | 보호 경로 목록의 단일 출처 (앱과 테스트가 공유, TS-013) |
-| `troubleshooting/` | O | 실패 모드 22건 + `evidence/` 1차 자료 |
+| `troubleshooting/` | O | 실패 모드 23건 + `evidence/` 1차 자료 |
 | `.harness_memory/<session>/` | O | Reflexion 반성 기록. 같은 세션 ID 로 재실행 시 주입된다 |
 | `.claude/skills/harness/` | O | 토큰 없는 모드의 절차 |
 | `harness_runtime.log` | X | 나이트 시프트 출력. `cli report` 의 입력 데이터 |
@@ -621,7 +648,7 @@ python -m harness.cli report
 기능 6/75 통과 — 전부 증거 기록 보유
 jest 51/51 (7 suites) · E2E 14 통과 / 4 보류 / 실패 0
 lint exit 0 · build exit 0 · tsc 오류 0
-하네스 회귀 617건 (verification/repro_ts005/…/022) 전부 통과
+하네스 회귀 661건 (verification/repro_ts005/…/023) 전부 통과
 자기 감사: 죽은 설정 0 · 고아 코드 0 · 미사용 임포트 0
 유료 경로 스모크 78건 — LangGraph 그래프를 토큰 0 으로 끝까지 실행
 다른 프로젝트 실측: main_portfolio(Vite, 테스트 0개) 검수 통과 — 막는 사유 3건 정확히 보고
@@ -654,6 +681,7 @@ python verification/repro_ts019.py   # 죽은 설정·고아 코드 재발 방�
 python verification/repro_ts020.py   # 증거 독립성 (자급 판정·채널 수)        50/50
 python verification/repro_ts021.py   # 변이 연산자 + 돌연변이 게이트          58/58
 python verification/repro_ts022.py   # 탐지 범위 (표본·컬렉션 연산자)        68/68
+python verification/repro_ts023.py   # 생존의 의미를 명세로 가린다           44/44
 
 cd web_target
 npm run lint       # exit 0
@@ -706,7 +734,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 
 | 잡 | 내용 |
 |---|---|
-| `하네스 검증` | `verification/repro_ts005/…/022` (617건) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `하네스 검증` | `verification/repro_ts005/…/023` (661건) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
@@ -738,6 +766,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-020 | 증거 사다리의 빈 칸은 깊이가 아니라 독립성이었다 — TS-013 을 정책으로 일반화 |
 | TS-021 | 변이 연산자가 테스트를 시험하지 않고 컴파일러를 시험했다 — 190곳 중 3곳만 진짜 비교 |
 | TS-022 | 탐지가 닿지 않는 두 구멍 — 표본은 파일 앞머리만, 연산자는 배열을 못 건드렸다 |
+| TS-023 | 생존한 변이를 '테스트가 약하다'로 읽고 고치려 했다 — 명세가 요구하지 않는 것이었다 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

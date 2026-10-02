@@ -199,6 +199,51 @@ def drop_member(text: str, collection: str, member: str) -> str | None:
     return None
 
 
+#: 멤버가 명세에 **경로/식별자로** 등장하는지 판정할 때의 경계 문자 집합.
+#: ASCII 로 한정하는 이유: 한국어 명세는 `/dashboard에 접속한다` 처럼 경로 뒤에 한글이
+#: 붙는다. `\w` 를 쓰면 한글이 단어 문자라서 경계로 인정되지 않아 전부 미매칭된다(실측).
+_MEMBER_BOUNDARY = r"(?![A-Za-z0-9_/-])"
+
+
+def spec_text(project_root: str, feature_id: str) -> str:
+    """기능 하나의 명세 전문 (설명 + 단계). 찾지 못하면 빈 문자열."""
+    from harness.verify import find_index, load_features
+
+    try:
+        features = load_features(project_root)
+    except (OSError, ValueError):
+        return ""
+    idx = find_index(features, feature_id)
+    if idx < 0:
+        return ""
+    f = features[idx]
+    return " ".join([str(f.get("description", "")), *(str(s) for s in f.get("steps") or [])])
+
+
+def spec_names(member: str, spec: str) -> bool:
+    """명세가 이 멤버를 **지목하는가** (TS-023).
+
+    왜 필요한가 — 실측:
+      `PROTECTED_PATHS` 의 멤버를 지웠을 때 `/`, `/profile`, `/settings` 가 생존했다.
+      그래서 "테스트가 약하다"고 읽고 단정을 추가하려 했는데, 명세를 보니 F-005 는
+      **`/dashboard` 만 지목**한다. 나머지 3개는 명세가 요구하지 않는다.
+
+      그 3개를 테스트로 고정하면 **명세에 없는 것을 단정하는 테스트**가 된다 —
+      TS-014 가 '측정 도구 오류'로 분류하고 고쳤던 바로 그것이고, 현재 구현을
+      명세로 승격시키는 순환이다.
+
+      따라서 생존은 두 종류다:
+        명세가 지목함  → **증거의 진짜 공백** (요구되는데 고정되지 않았다)
+        명세에 없음    → **명세의 공백** (앱이 명세를 넘어 구현했다. 테스트의 잘못이 아니다)
+
+    경계 판정은 사실이다 — 멤버 문자열이 경로 경계와 함께 명세에 있는가.
+    `?redirect=/dashboard` 가 멤버 `/` 에 오매칭되지 않는 것을 실측으로 확인했다.
+    """
+    if not member or not spec:
+        return False
+    return bool(re.search(re.escape(member) + _MEMBER_BOUNDARY, spec))
+
+
 def _member_line(text: str, collection: str, member: str) -> int:
     """멤버가 **선언 안에서** 몇 번째 줄에 있는가.
 
@@ -377,6 +422,7 @@ def mutate_feature(
     # 비교·논리·조건이 없어 변이 지점이 0곳이었다. 그래서 "명세가 보호를 요구하는
     # 경로가 목록에서 사라진다"(= TS-013) 를 주입할 수 없었다.
     all_sources = [e.split(" (")[0] for e in cov["sources"]]
+    spec = spec_text(project_root, feature_id)
     coll_cands = collection_candidates(project_root, all_sources)
     site_total += len(coll_cands)
     for coll_name, declared_in, member in select_spread(coll_cands, budget_coll):
@@ -396,11 +442,21 @@ def mutate_feature(
             target.write_text(mutated, encoding="utf-8")
             failed = _tests_fail(project_root, feature_id, test_files)
             if not failed:
-                results.append(MutantResult(
-                    rule, rel, lineno, "survived",
-                    f"{member!r} 를 목록에서 지웠는데 테스트가 전부 통과했다 "
-                    f"— 목록을 순회하는 테스트는 **덜 돌 뿐**이다",
-                ))
+                # 명세가 이 멤버를 지목하는가 — 생존의 의미가 갈린다 (TS-023)
+                if spec_names(member, spec):
+                    results.append(MutantResult(
+                        rule, rel, lineno, "survived",
+                        f"{member!r} 를 목록에서 지웠는데 테스트가 전부 통과했다. "
+                        f"**명세가 이 경로를 지목한다** — 증거의 진짜 공백이다 "
+                        f"(목록을 순회하는 테스트는 멤버가 사라지면 덜 돌 뿐이다)",
+                    ))
+                else:
+                    results.append(MutantResult(
+                        rule, rel, lineno, "out-of-spec",
+                        f"{member!r} 를 지웠는데 통과했다. 다만 **명세가 이 멤버를 "
+                        f"요구하지 않는다** — 테스트의 공백이 아니라 명세의 공백이다. "
+                        f"고정하려면 먼저 명세에 적어야 한다 (TS-014)",
+                    ))
             elif not _typechecks(project_root):
                 # **폐기가 아니라 '타입이 잡음'이다** (TS-022).
                 #
@@ -428,6 +484,9 @@ def mutate_feature(
     # 타입 검사가 잡은 것 — 증거 점수의 분자에 넣지 않는다 (잡은 것은 테스트가 아니다).
     # 그래도 **구조적 보호가 있다는 사실**은 따로 센다 (TS-022).
     by_types = sum(1 for r in results if r.status == "types")
+    # 명세가 요구하지 않는 멤버의 생존 — 증거의 공백이 아니므로 분모에서 제외한다 (TS-023).
+    # 테스트로 고정하려면 먼저 명세에 적어야 하고, 적지 않은 채 고정하면 TS-014 다.
+    out_of_spec = sum(1 for r in results if r.status == "out-of-spec")
     scored = killed + survived
     return {
         "feature": feature_id,
@@ -437,6 +496,7 @@ def mutate_feature(
         "survived": survived,
         "invalid": invalid,
         "types": by_types,
+        "out_of_spec": out_of_spec,
         "score": round(killed / scored, 4) if scored else None,
         # 후보 총수와 실제 시도 수 — 예산 때문에 몇 개를 건너뛰었는지 보이게 한다.
         # 이것이 없으면 "점수 40%" 가 몇 개 표본에 근거한 수치인지 알 수 없다 (TS-022).
@@ -459,7 +519,8 @@ def format_mutation(report: dict[str, Any]) -> str:
         "",
         f"  잡음(killed) {report['killed']} / 생존(survived) {report['survived']}"
         f" / 폐기(invalid) {report['invalid']}"
-        + (f" / 타입이 잡음(types) {report['types']}" if report.get("types") else ""),
+        + (f" / 타입이 잡음(types) {report['types']}" if report.get("types") else "")
+        + (f" / 명세 범위 밖 {report['out_of_spec']}" if report.get("out_of_spec") else ""),
     ]
     # 표본 크기를 함께 출력한다 — 점수만 보면 몇 개에 근거한 수치인지 알 수 없다
     sites, attempted = report.get("sites"), report.get("attempted")
@@ -477,7 +538,7 @@ def format_mutation(report: dict[str, Any]) -> str:
 
     lines += ["", "  변이별 결과", "  " + "-" * 64]
     marks = {"killed": "잡음  ", "survived": "생존  ", "invalid": "폐기  ",
-             "types": "타입잡음"}
+             "types": "타입잡음", "out-of-spec": "명세밖 "}
     for r in report["mutants"]:
         lines.append(f"  {marks.get(r.status, r.status)} {r.file}:{r.line}  {r.rule}")
         if r.detail:
@@ -514,6 +575,28 @@ def format_mutation(report: dict[str, Any]) -> str:
             "  해석 주의: 점수는 '변이 대상 파일에서 몇 %를 잡았나'이지 "
             "'이 기능의 테스트 품질'이 아니다.",
             "  변이 대상은 커버리지로 고르므로 다른 기능이 소유한 파일이 섞인다.",
+        ]
+
+    # 명세 범위 밖 생존은 **다른 종류의 신호**다 — 테스트를 고치라는 뜻이 아니다 (TS-023)
+    if report.get("out_of_spec"):
+        oos = [r for r in report["mutants"] if r.status == "out-of-spec"]
+        lines += [
+            "",
+            f"  ◆ 명세 범위 밖 {len(oos)}건 — 지워도 통과하지만 **명세가 요구하지 않는다.**",
+            "    테스트의 공백이 아니라 **명세의 공백**이다. 앱이 명세를 넘어 구현했다.",
+            "    여기에 단정을 추가하면 '명세에 없는 것을 단정하는 테스트'가 되고,",
+            "    그것은 TS-014 가 '측정 도구 오류'로 분류해 고쳤던 바로 그 패턴이다.",
+            "    고정이 필요하다고 판단되면 **먼저 명세에 적는다.**",
+        ]
+        for r in oos:
+            lines.append(f"      · {r.rule}")
+
+    if report.get("types"):
+        lines += [
+            "",
+            f"  ◆ 타입이 잡음 {report['types']}건 — 테스트가 아니라 컴파일러가 막았다.",
+            "    증거 점수의 분자에는 넣지 않았다(잡은 것이 테스트가 아니므로).",
+            "    다만 **구조적 보호가 존재한다**는 사실이므로 '폐기'로 묻지 않는다.",
         ]
     lines.append(bar)
     return "\n".join(lines)

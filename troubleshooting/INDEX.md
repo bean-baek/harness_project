@@ -26,3 +26,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-020](TS-020-evidence-independence.md) | resolved | high | 증거 사다리의 빈 칸은 깊이가 아니라 독립성이었다 — TS-013 을 정책으로 일반화 | `harness/independence.py` |
 | [TS-021](TS-021-mutation-operators-tested-the-compiler.md) | resolved | high | 변이 연산자가 테스트를 시험하지 않고 컴파일러를 시험했다 — 190곳 중 3곳만 진짜 비교 | `harness/mutate.py` |
 | [TS-022](TS-022-detection-reach.md) | resolved | high | 탐지가 닿지 않는 두 구멍 — 표본은 파일 앞머리만, 연산자는 배열을 못 건드렸다 | `harness/mutate.py` |
+| [TS-023](TS-023-survivor-means-two-things.md) | resolved | high | 생존한 변이를 '테스트가 약하다'로 읽고 고치려 했다 — 명세가 요구하지 않는 것이었다 | `harness/mutate.py` |

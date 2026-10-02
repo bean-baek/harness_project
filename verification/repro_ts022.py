@@ -169,7 +169,14 @@ project_mod.clear_cache()
 print("\n[6] types 상태 — 타입이 잡은 것을 '폐기'로 묻지 않는가")
 work = tmp()
 write(work / "src" / "routes.ts", "export const PATHS = ['/a', '/b', '/c'];")
-write(work / "features.json", "[]")
+# TS-023 이후 생존의 분류는 **명세가 멤버를 지목하는지**에 달려 있다.
+# 명세가 비면 전부 'out-of-spec' 이 되므로(요구의 근거가 없다), 이 검증의 의도
+# — 컬렉션 연산자가 변이를 만들고 생존 시 tsc 를 건너뛰는가 — 를 보려면
+# 명세가 세 멤버를 지목해야 한다.
+write(work / "features.json", json.dumps([
+    {"id": "C-001", "description": "경로 보호",
+     "steps": ["/a 와 /b 와 /c 를 보호한다"], "passes": False},
+], ensure_ascii=False))
 write(work / ".harness.json", json.dumps({
     "target": ".", "runner": "jest", "source_dirs": ["src"],
     "unit_suffixes": [".test.ts"], "e2e_suffixes": [".spec.ts"],

@@ -17,7 +17,7 @@ trustworthy while nobody is watching.** This repository implements the apparatus
 | | |
 |---|---|
 | **Is the deliverable** | `harness/` — the operating layer that runs, verifies, measures, and halts the agent |
-| **Is the deliverable** | `troubleshooting/` — **22 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
+| **Is the deliverable** | `troubleshooting/` — **23 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
 | **Is NOT the deliverable** | `web_target/` — a todo app. The **test subject** and benchmark task for the harness |
 
 The 75 features in `web_target` (`features.json`) are not the goal; they are the
@@ -50,8 +50,8 @@ harness/              the operating layer — gate, measurement, runner, inspect
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
   nodes/agents.py     the 5 agent nodes (paid path)
-verification/         617 regression checks — one script per failure mode
-troubleshooting/      22 failure-mode records + evidence/ primary sources
+verification/         661 regression checks — one script per failure mode
+troubleshooting/      23 failure-mode records + evidence/ primary sources
 web_target/           the test-subject todo app (not the deliverable)
 .harness_memory/      Reflexion primary data — cannot be regenerated, kept
 docs/ scripts/ .claude/skills/harness/
@@ -260,9 +260,39 @@ over 16 of 27 candidates. The score going *down* is the improvement — the 40% 
 was an **overestimate** biased to the top of the file, and widening from 10 to 16 samples
 holds at 33%.
 
-**Newly surfaced**: survivors at `LoginForm.tsx:32, 89, 188` (first reached by spread
-sampling), and the fact that `/`, `/profile`, and `/settings` in `PROTECTED_PATHS` are
-**not pinned by any test.**
+**I read those survivors as "the test is weak" and nearly fixed them — wrong (TS-023).**
+
+F-005's spec names **only `/dashboard`.** `/`, `/profile`, and `/settings` appear nowhere in
+it; the app protects four paths while the spec requires one. Pinning those three with tests
+would produce **a test asserting something the spec does not require** — the very pattern §8
+classifies as an "instrument defect" and fixed (TS-014), and it promotes the current
+implementation to spec, which is circular.
+
+**The measurement tool was pushing me into that circle**, because it treated all survivors
+as one kind.
+
+| What a survivor means | The right action |
+|---|---|
+| the spec requires it | **an evidence gap** — add the assertion |
+| the spec does not require it | **a spec gap** — touching the test is TS-014 |
+
+`spec_names()` decides this **as a fact**: does the member string appear in the spec at a path
+boundary? Restricting the boundary class to **ASCII** is the crux — using `\w` makes the `에`
+in `/dashboard에 접속한다` a word character, so **nothing matches**; omitting the boundary makes
+the member `/` match inside `?redirect=/dashboard`, so **everything** looks spec-named.
+
+It does not apply to line mutations — a line carries no name to look for in the spec, so
+**there is no fact to decide.** An empty spec puts everything out of scope and yields no score
+(there is no basis for "required").
+
+Final F-005: **50%** (killed 3 / survived 3 / out-of-spec 3 / caught-by-types 1). The three
+remaining survivors are all line mutations in `LoginForm.tsx`, whose verification belongs to
+F-001–003. **F-005's collection evidence has no real gap.**
+
+This is the **third time** in this project that collapsing a measurement into a single number
+made the action wrong — a mutation score mixing in other features' files (TS-016), type-level
+detection buried as "discarded" (TS-022), and two kinds of survivor merged (TS-023).
+**Split the number wherever the action splits.**
 
 ### 4.3 Attaching it to another project (TS-017)
 
@@ -635,7 +665,7 @@ match the app would be the worst choice**, so the signal was preserved instead (
 | `web_target/features.json` | Yes | 75 features + `passes` + `verification` evidence — **the source of truth** |
 | `features.draft.json` | No | output of `inspect --write-draft`. **Not a spec** — a human must move it over |
 | `web_target/src/routes.ts` | Yes | single source of truth for the protected-path list (shared by app and tests, TS-013) |
-| `troubleshooting/` | Yes | 22 failure modes + `evidence/` primary sources |
+| `troubleshooting/` | Yes | 23 failure modes + `evidence/` primary sources |
 | `.harness_memory/<session>/` | Yes | Reflexion records. Injected when re-run with the same session ID |
 | `.claude/skills/harness/` | Yes | the tokenless-mode procedure |
 | `harness_runtime.log` | No | night-shift output. Input data for `cli report` |
@@ -648,7 +678,7 @@ match the app would be the worst choice**, so the signal was preserved instead (
 6/75 features passing — all with recorded evidence
 jest 51/51 (7 suites) · E2E 14 passed / 4 deferred / 0 failed
 lint exit 0 · build exit 0 · 0 tsc errors
-617 harness regression checks (verification/repro_ts005/…/022) all passing
+661 harness regression checks (verification/repro_ts005/…/023) all passing
 Self-audit: 0 dead config · 0 orphan code · 0 unused imports
 78 paid-path smoke checks — the LangGraph graph driven end to end with zero tokens
 Measured on another project: main_portfolio (Vite, 0 tests) inspected cleanly — 3 blockers reported accurately
@@ -681,6 +711,7 @@ python verification/repro_ts019.py   # dead-config / orphan-code recurrence guar
 python verification/repro_ts020.py   # evidence independence (self-supply, channels)   50/50
 python verification/repro_ts021.py   # mutation operators + mutation gate              58/58
 python verification/repro_ts022.py   # detection reach (sampling, collection operator) 68/68
+python verification/repro_ts023.py   # what a surviving mutant means (spec-aware)      44/44
 
 cd web_target
 npm run lint       # exit 0
@@ -735,7 +766,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/022` (617 checks) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/023` (661 checks) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -767,6 +798,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-020 | The empty rung on the evidence ladder was independence, not depth — TS-013 generalized into policy |
 | TS-021 | The mutation operators tested the compiler, not the tests — 3 of 190 match sites were real comparisons |
 | TS-022 | Two holes detection never reached — sampling was pinned to the top of each file, operators could not touch arrays |
+| TS-023 | I read a surviving mutant as "the test is weak" and almost fixed it — the spec never required it |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

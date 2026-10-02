@@ -4,7 +4,7 @@
 # (TS-001 루트 features.json / init.sh 의 PROJECT_ROOT / TS-006 의 run_tests / TS-012 의 3건).
 # CI 는 그 패턴에 대한 기계적 처방이다 — 선언한 모든 명령을 매 푸시마다 실제로 돌린다.
 #
-# 토큰 없는 모드이므로 **API 키 없이 전부 돈다**: 하네스 검증 617건은 LLM 을 스텁으로
+# 토큰 없는 모드이므로 **API 키 없이 전부 돈다**: 하네스 검증 661건은 LLM 을 스텁으로
 # 대체하고, 증거 게이트는 jest 만 쓴다. 비용 0.
 
 name: CI
@@ -111,6 +111,11 @@ jobs:
 
       - name: TS-022 — 탐지 범위 (표본 편향 + 컬렉션 연산자)
         run: python verification/repro_ts022.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      - name: TS-023 — 생존의 의미를 명세로 가린다
+        run: python verification/repro_ts023.py
         env:
           GOOGLE_API_KEY: ""
 
