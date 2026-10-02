@@ -20,3 +20,5 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-014](TS-014-tag-points-at-wrong-feature.md) | resolved | high | 태그가 엉뚱한 기능을 가리켜도 게이트가 보지 못한다 — 피험체 결함은 어디까지 고치는가 | `harness/tags.py` |
 | [TS-015](TS-015-orphaned-measurement-after-mode-switch.md) | resolved | medium | 토큰 없는 모드로 옮기며 측정 계층의 절반이 고아가 됐다 — 기록자가 사라진 것을 몰랐다 | `harness/cli.py` |
 | [TS-016](TS-016-vacuous-evidence-passes-the-gate.md) | resolved | high | 아무것도 실행하지 않는 테스트가 완벽한 증거로 계수됐다 — 커버리지 게이트와 돌연변이 측정 | `harness/verify.py` |
+| [TS-017](TS-017-harness-bound-to-one-repo.md) | resolved | high | 하네스가 레포 한 곳에만 붙어 있었다 — 설정 외부화·런너 추상화·프로젝트 검수 | `harness/project.py`, `harness/runner.py`, `harness/inspect.py` |
+| [TS-018](TS-018-paid-path-unverified-for-six-months.md) | resolved | high | 유료 경로가 6개월간 검증 없이 방치됐다 — 스모크 테스트가 즉시 버그 2건을 찾아냈다 | `harness/router.py`, `harness/nodes/agents.py` |

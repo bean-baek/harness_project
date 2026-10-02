@@ -38,14 +38,15 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
-import subprocess
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import config
+from harness import project
+from harness import runner as runner_mod
+from harness.project import ProjectConfig
+from harness.runner import Runner
 
 #: 검증 수준 — 엄격도 오름차순
 LEVELS = ("suite", "feature", "step")
@@ -54,52 +55,38 @@ LEVELS = ("suite", "feature", "step")
 MAX_EVIDENCE_NAMES = 20
 
 
-# ── jest 실행 ────────────────────────────────────────────────────────────────
+# ── 런너 위임 ────────────────────────────────────────────────────────────────
+#
+# 생태계에 묶인 부분은 전부 `harness/runner.py` 로 옮겼다. 이 모듈에 남은 것은
+# **판정 정책**이며 jest·vitest·pytest 어디서든 같다.
+#
+# 공개 이름(`jest_launcher`/`run_jest`/`run_jest_json`/`coverage_for_feature`)은
+# 유지한다 — 재현 스크립트 7종이 이 이름들을 스텁으로 교체해 LLM·jest 없이 게이트를
+# 검증하기 때문이다. 이름을 바꾸면 236개 검증의 격리가 무너진다.
+#
+# `.harness.json` 이 없으면 `ProjectConfig()` 의 기본값이 쓰이고, 그 기본값은
+# 이 리팩터 이전의 하드코딩과 **같은 값**이다 (jest / .test.ts,.tsx / .spec.ts,.tsx).
+# 따라서 설정 파일을 추가하지 않은 프로젝트의 동작은 변하지 않는다.
+
+def config_for(project_root: str) -> ProjectConfig:
+    """대상 경로에 적용할 설정 (`harness.project.config_for` 위임)."""
+    return project.config_for(project_root, config.BASE_DIR)
+
+
+def runner_for(project_root: str) -> Runner:
+    """대상 경로의 테스트 런너."""
+    return runner_mod.for_project(config_for(project_root), config.BASE_DIR)
+
 
 def jest_launcher(project_root: str) -> list[str] | None:
-    """jest 를 실행할 커맨드 접두사를 반환한다. 없으면 None.
+    """런너 실행 커맨드 접두사. 없으면 None.
 
-    Windows 주의 (TS-006): `subprocess.run(["npx", ...])` 는 shell=False 에서
-    `npx.cmd` 를 찾지 못해 항상 FileNotFoundError 를 던진다. PATHEXT 를 처리하는
-    shutil.which 를 쓰고, 프로젝트 로컬 바이너리를 우선한다.
-    절대 경로 필수 — subprocess 가 cwd=project_root 로 전환하므로 상대 경로는 깨진다.
+    이름은 역사적이다(jest 전용이던 시절). 지금은 선언된 런너에 위임한다.
     """
-    root = Path(project_root).resolve()
-
-    bin_dir = root / "node_modules" / ".bin"
-    for name in ("jest.cmd", "jest.CMD", "jest"):
-        candidate = bin_dir / name
-        if candidate.is_file():
-            return [str(candidate)]
-
-    # npx 폴백은 **대상이 실제로 jest 를 설정한 JS 프로젝트일 때만** 쓴다 (TS-008).
-    # 근거: jest 는 설정을 못 찾으면 상위 디렉터리로 올라가며 rootDir 을 추정한다.
-    # 빈 디렉터리에서 실행했을 때 rootDir 이 **사용자 홈**으로 잡혀 .vscode/extensions
-    # 전체를 스캔하며 2분 타임아웃까지 멈추는 것을 실측했다. 전제조건 없이 npx 로
-    # 폴백하면 '테스트 0건'이 아니라 '사용자 홈 스캔'이 된다.
-    # 또한 --no-install 로 네트워크 설치 시도를 차단한다 (남의 레포 오염 방지).
-    if not _has_jest_config(root):
+    try:
+        return runner_for(project_root).launcher()
+    except ValueError:
         return None
-    npx = shutil.which("npx")
-    if npx:
-        return [npx, "--no-install", "jest"]
-    return None
-
-
-def _has_jest_config(root: Path) -> bool:
-    """대상 프로젝트가 jest 설정을 갖고 있는지 확인한다 (상위 디렉터리는 보지 않는다)."""
-    for name in ("jest.config.ts", "jest.config.js", "jest.config.mjs",
-                 "jest.config.cjs", "jest.config.json"):
-        if (root / name).is_file():
-            return True
-    pkg = root / "package.json"
-    if pkg.is_file():
-        try:
-            data = json.loads(pkg.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return False
-        return isinstance(data, dict) and "jest" in data
-    return False
 
 
 def run_jest(
@@ -107,100 +94,66 @@ def run_jest(
     test_path: str = ".",
     coverage: bool = False,
 ) -> tuple[int | None, str]:
-    """사람이 읽을 출력을 위한 jest 실행. (종료코드, 출력). None = 실행 불가."""
-    launcher = jest_launcher(project_root)
-    if launcher is None:
-        return None, (
-            "[오류] jest 실행 파일을 찾을 수 없습니다. "
-            f"{project_root} 에서 npm install 을 먼저 실행하십시오."
-        )
-
-    flags = ["--no-coverage"] if not coverage else ["--coverage", "--coverageReporters=text"]
-    timeout = config.TOOL_TIMEOUTS.get("run_tests", 120)
+    """사람이 읽을 출력을 위한 전체 실행. (종료코드, 출력). None = 실행 불가."""
     try:
-        result = subprocess.run(
-            [*launcher, test_path, "--rootDir", str(Path(project_root).resolve()), *flags],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-        return result.returncode, result.stdout + result.stderr
-    except subprocess.TimeoutExpired:
-        return None, f"[오류] 테스트 타임아웃 ({timeout}초)"
-    except FileNotFoundError:
-        return None, "[오류] Jest를 찾을 수 없습니다. npm install을 먼저 실행하십시오."
+        return runner_for(project_root).run_all(test_path, coverage)
+    except ValueError as exc:
+        return None, f"[오류] {exc}"
 
 
 def run_jest_json(project_root: str) -> tuple[dict[str, Any] | None, str]:
-    """jest 를 `--json` 으로 실행해 구조화된 결과를 반환한다.
+    """구조화된 테스트 결과를 **jest JSON 모양으로** 반환한다.
 
-    Returns:
-        (결과 dict, 진단 메시지). dict 가 None 이면 실행/파싱 실패.
-
-    테스트가 실패해도 jest 는 JSON 을 쓴다(종료 코드만 1). 따라서 종료 코드와
-    무관하게 파일을 읽는다 — 실패 내역 자체가 판정에 필요한 증거다.
-    결과 파일은 임시 디렉터리에 쓴다 (대상 레포를 오염시키지 않는다).
+    런너가 무엇이든 이 모양으로 정규화한다. 하위 호환을 위해 dict 를 유지한다 —
+    `verify_feature(results=...)` 와 재현 스크립트 스텁이 이 모양을 전제한다.
     """
-    launcher = jest_launcher(project_root)
-    if launcher is None:
-        return None, (
-            "[오류] jest 실행 파일을 찾을 수 없습니다. "
-            f"{project_root} 에서 npm install 을 먼저 실행하십시오."
-        )
-
-    timeout = config.TOOL_TIMEOUTS.get("run_tests", 120)
-    tmp_dir = tempfile.mkdtemp(prefix="harness-jest-")
-    out_path = Path(tmp_dir) / "results.json"
     try:
-        subprocess.run(
-            [*launcher, ".", "--rootDir", str(Path(project_root).resolve()),
-             "--no-coverage", "--json", f"--outputFile={out_path}"],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        return None, f"[오류] 테스트 타임아웃 ({timeout}초)"
-    except FileNotFoundError:
-        return None, "[오류] Jest를 찾을 수 없습니다. npm install을 먼저 실행하십시오."
-
-    if not out_path.is_file():
-        return None, "[오류] jest 가 결과 JSON 을 생성하지 않았습니다."
-    try:
-        return json.loads(out_path.read_text(encoding="utf-8")), ""
-    except json.JSONDecodeError as exc:
-        return None, f"[오류] jest 결과 JSON 파싱 실패: {exc}"
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        results, diag = runner_for(project_root).results()
+    except ValueError as exc:
+        return None, f"[오류] {exc}"
+    if results is None:
+        return None, diag
+    return {
+        "numTotalTests":      results.total,
+        "numPassedTests":     results.passed,
+        "numFailedTests":     results.failed,
+        "numTotalTestSuites": results.suites_total,
+        "numFailedTestSuites": results.suites_failed,
+        "testResults": [{
+            "name": "(normalized)",
+            "assertionResults": [
+                {"fullName": name, "title": name, "ancestorTitles": [], "status": status}
+                for name, status in results.assertions
+            ],
+        }],
+    }, ""
 
 
 # ── 증거가 실제로 소스를 실행하는가 (TS-016) ─────────────────────────────────
 #
 # TS-008 이후 증거는 "기능 ID 를 인용하는 통과 테스트"다. 그런데 **그 테스트가 아무것도
 # 실행하지 않아도 통과한다** — `test('F-006: x', () => expect(true).toBe(true))` 는
-# 완벽한 증거로 계수된다. 게이트는 이름만 보기 때문이다 (TS-008 이 남긴 주관성).
+# 완벽한 증거로 계수됐다. 게이트는 이름만 보기 때문이다 (TS-008 이 남긴 주관성).
 #
 # 커버리지는 그 공백을 **정확하게** 막는다: 태그 테스트만 실행했을 때 비(非)테스트 소스를
 # 한 줄도 덮지 않으면 그 증거는 공허하다. 휴리스틱이 아니라 사실 판정이다.
 #
-# 비용 때문에 호출 위치가 중요하다. 기능별 커버리지는 jest 를 한 번 더 돌려야 하므로(약 9초)
+# 비용 때문에 호출 위치가 중요하다. 기능별 커버리지는 런너를 한 번 더 돌려야 하므로(약 9초)
 # `verify_feature` 안에 넣으면 `audit`/`report` 가 수십~수백 배 느려진다
 # (discrimination_report 는 75기능 × 3수준을 판정한다). 그래서 **플래그를 쓰는 순간**
 # (apply_flag)에만 수행한다 — 기능당 한 번이다.
 
 def feature_name_pattern(feature_id: str) -> str:
-    """jest --testNamePattern 용 정규식. `F-005` 가 `F-0051` 에 걸리지 않게 한다."""
+    """`--testNamePattern` 용 정규식. `F-005` 가 `F-0051` 에 걸리지 않게 한다."""
     return f"{re.escape(feature_id)}(?![0-9])"
 
 
 def tagged_test_files(project_root: str, feature_id: str) -> list[str]:
-    """해당 기능 태그가 있는 **단위 테스트 파일** 목록 (jest 범위 제한용)."""
+    """해당 기능 태그가 있는 **단위 테스트 파일** 목록 (실행 범위 제한용).
+
+    E2E 는 제외한다 — 런너가 다르므로 게이트 증거로 계수하지 않는다.
+    어느 접미사가 단위/E2E 인지는 `.harness.json` 이 정한다.
+    """
     from harness.tags import scan_tags
     files = {
         ref.file for ref in scan_tags(project_root)
@@ -219,71 +172,28 @@ def coverage_for_feature(
 
     Returns:
         ({covered_statements, sources, files_touched}, 진단). 첫 값이 None 이면 측정 실패.
+        **측정 실패는 통과가 아니다** — 호출자(apply_flag)는 거부로 처리한다.
 
-    **파일 범위까지 제한해야 한다.** `--testNamePattern` 은 테스트 *실행*만 건너뛰고
-    테스트 파일은 전부 import 한다. 그래서 다른 파일들의 모듈 수준 import 가
-    커버리지에 섞여, 아무것도 실행하지 않는 공허한 테스트가 42 statements 를 덮은 것처럼
-    집계됐다(실측). 태그가 있는 파일만 인자로 넘겨 그 오염을 제거한다.
-
-    주의: 부분 실행이므로 전역 커버리지 임계(80%)를 반드시 끈다 — 끄지 않으면
-    임계 미달로 비정상 종료해 측정 자체가 실패한 것처럼 보인다.
+    범위 제한의 근거는 `runner.coverage()` 의 docstring 에 있다 (TS-016 함정 2).
     """
-    launcher = jest_launcher(project_root)
-    if launcher is None:
-        return None, "[오류] jest 실행 파일을 찾을 수 없습니다."
-
     if test_files is None:
         test_files = tagged_test_files(project_root, feature_id)
     if not test_files:
         return None, f"[오류] {feature_id} 태그가 있는 단위 테스트 파일이 없습니다."
 
-    root = Path(project_root).resolve()
-    tmp_dir = tempfile.mkdtemp(prefix="harness-cov-")
-    timeout = config.TOOL_TIMEOUTS.get("run_tests", 120)
     try:
-        subprocess.run(
-            [
-                *launcher,
-                *test_files,
-                "--rootDir", str(root),
-                "--testNamePattern", feature_name_pattern(feature_id),
-                "--coverage",
-                "--coverageReporters=json-summary",
-                f"--coverageDirectory={tmp_dir}",
-                "--coverageThreshold={}",
-            ],
-            cwd=project_root, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=timeout,
+        cov, diag = runner_for(project_root).coverage(
+            test_files, feature_name_pattern(feature_id)
         )
-        summary_path = Path(tmp_dir) / "coverage-summary.json"
-        if not summary_path.is_file():
-            return None, "[오류] 커버리지 요약이 생성되지 않았습니다."
-        data = json.loads(summary_path.read_text(encoding="utf-8"))
-    except subprocess.TimeoutExpired:
-        return None, f"[오류] 커버리지 측정 타임아웃 ({timeout}초)"
-    except (OSError, json.JSONDecodeError) as exc:
-        return None, f"[오류] 커버리지 측정 실패: {exc}"
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    except ValueError as exc:
+        return None, f"[오류] {exc}"
+    if cov is None:
+        return None, diag
 
-    hits: list[tuple[str, int]] = []
-    for path, metrics in data.items():
-        if path == "total":
-            continue
-        covered = int(metrics.get("statements", {}).get("covered", 0))
-        if covered <= 0:
-            continue
-        name = Path(path).name
-        # 테스트 파일 자신은 증거가 아니다
-        if name.endswith((".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")):
-            continue
-        hits.append((name, covered))
-
-    hits.sort(key=lambda h: -h[1])
     return {
-        "covered_statements": sum(c for _, c in hits),
-        "files_touched": len(hits),
-        "sources": [f"{n} ({c})" for n, c in hits[:top_n]],
+        "covered_statements": cov.total(),
+        "files_touched": len(cov.per_file),
+        "sources": cov.top(top_n),
     }, ""
 
 
@@ -489,7 +399,24 @@ def verify_feature(
 # 토큰 없는 CLI(`harness.cli`)가 같은 함수를 호출하므로 구현이 갈라지지 않는다.
 
 def features_path(project_root: str) -> Path:
-    return Path(project_root) / "features.json"
+    """명세 파일 경로. `.harness.json` 의 spec 이 정한다 (기본 features.json).
+
+    대상 루트에서 먼저 찾고 없으면 하네스 루트에서 찾는다 — 이 레포는 명세를
+    하네스 루트에 두고 앱을 web_target/ 에 두는 배치이기 때문이다. 둘 다 없으면
+    대상 루트의 경로를 반환한다 (생성 위치가 되고, 읽기는 FileNotFoundError).
+    """
+    cfg = config_for(project_root)
+    spec = Path(cfg.spec)
+    if spec.is_absolute():
+        return spec
+    root = Path(project_root)
+    here = root / spec
+    if here.is_file():
+        return here
+    sibling = (Path(config.BASE_DIR) / spec)
+    if sibling.is_file():
+        return sibling
+    return here
 
 
 def load_features(project_root: str) -> list[dict[str, Any]]:

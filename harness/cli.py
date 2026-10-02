@@ -317,6 +317,72 @@ def cmd_mutate(args) -> int:
     return 1 if report["survived"] else 0
 
 
+def cmd_init(args) -> int:
+    """프로젝트를 검수해 `.harness.json` 을 만든다.
+
+    종료 코드: 0 생성 완료 / 1 이미 존재 / 2 검수 실패.
+    `--dry-run` 은 쓰지 않고 결과만 보여준다 — 추론이 틀렸을 때 사용자가 먼저
+    확인할 수 있어야 한다. 자동 감지를 조용히 신뢰하지 않는다는 것이 이 프로젝트의
+    기본 입장이다 (TS-009: 측정이 무엇을 근거로 했는지 보이지 않으면 믿을 수 없다).
+    """
+    from harness import project
+
+    root = Path(args.harness_root).resolve()
+    try:
+        cfg, findings = project.load(root)
+    except ValueError as exc:
+        print(f"[오류] {exc}")
+        return 2
+
+    print(project.format_findings(cfg, findings, root))
+
+    if args.dry_run:
+        print("\n  --dry-run — 아무것도 쓰지 않았습니다.")
+        return 0
+    try:
+        path = project.save(cfg, root)
+    except FileExistsError as exc:
+        print(f"\n[건너뜀] {exc}")
+        return 1
+    print(f"\n  작성: {path}")
+    print("  틀린 값이 있으면 그 키만 고치십시오 — 선언된 키가 추론을 이깁니다.")
+    return 0
+
+
+def cmd_inspect(args) -> int:
+    """객관 지표와 의도가 필요한 후보를 나눠 보고한다.
+
+    종료 코드: 0 위반 없음 / 1 자동 판정에서 위반 발견 / 2 검수 실패.
+    위반을 종료 코드로 알리는 이유: 이 검사들은 **의도와 무관하게** 틀린 것이므로
+    CI 에서 차단해도 근거가 선다. 의도가 필요한 후보는 종료 코드에 영향을 주지 않는다.
+    """
+    from harness import inspect as inspect_mod
+
+    root = Path(args.harness_root).resolve()
+    try:
+        report = inspect_mod.inspect_project(root)
+    except ValueError as exc:
+        print(f"[오류] {exc}")
+        return 2
+
+    print(inspect_mod.format_report(report, root))
+
+    if args.write_draft and report.draft:
+        draft_path = root / "features.draft.json"
+        if draft_path.exists() and not args.force:
+            print(f"\n[건너뜀] {draft_path} 가 이미 있습니다 (--force 로 덮어쓰기).")
+        else:
+            draft_path.write_text(
+                json.dumps(report.draft, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            print(f"\n  초안 작성: {draft_path} ({len(report.draft)}건)")
+            print("  이것은 **명세가 아닙니다.** 읽고 판단한 뒤 features.json 으로 옮기십시오 —")
+            print("  검수가 뽑은 항목을 그대로 명세로 쓰면 코드를 그 코드로 검사하는 순환입니다.")
+
+    return 1 if any(c.auto and c.verdict == "violated" for c in report.checks) else 0
+
+
 def cmd_tags(args) -> int:
     """증거 태그가 옳은 기능을 가리키는지 검사한다 (보고만, 차단 없음)."""
     from harness.tags import format_tag_report, lint_tags, scan_tags
@@ -405,6 +471,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-files", type=int, default=2, dest="max_files",
                    help="변이 대상 파일 수 (기본 2)")
     p.set_defaults(func=cmd_mutate)
+
+    p = sub.add_parser("init", help="프로젝트를 검수해 .harness.json 생성")
+    p.add_argument("--harness-root", default=".", dest="harness_root",
+                   help="하네스 루트 (기본: 현재 디렉터리)")
+    p.add_argument("--dry-run", action="store_true", dest="dry_run",
+                   help="쓰지 않고 검수 결과만 출력")
+    p.set_defaults(func=cmd_init)
+
+    p = sub.add_parser("inspect", help="객관 지표 추출 + 의도가 필요한 항목 분리 보고")
+    p.add_argument("--harness-root", default=".", dest="harness_root")
+    p.add_argument("--write-draft", action="store_true", dest="write_draft",
+                   help="features.draft.json 에 명세 초안을 쓴다 (명세 아님 — 검토 필요)")
+    p.add_argument("--force", action="store_true", help="기존 초안을 덮어쓴다")
+    p.set_defaults(func=cmd_inspect)
 
     p = sub.add_parser("tags", parents=[common], help="증거 태그가 옳은 기능을 가리키는지 검사")
     p.set_defaults(func=cmd_tags)

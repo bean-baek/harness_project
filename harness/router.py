@@ -21,6 +21,25 @@ from harness.state import HarnessState
 # ReAct 루프 하드 캡 — 분석 마비(탐색만 반복) 방어용 안전망
 MAX_TOOL_CALLS_PER_FEATURE = 15
 
+#: ToolMessage 내용에서 **실패**를 식별하는 패턴 (TS-018).
+#:
+#: 왜 한국어 마커가 필요한가 — 실측:
+#:   `harness/tools.py` 의 도구들은 실패를 **예외로 올리지 않고 문자열로 반환**한다.
+#:   그 문자열은 전부 `[오류]` / `[보안 오류]` 로 시작하는 한국어다 — 16건 중
+#:   영어 오류 키워드를 포함한 것은 **0건**이었다. 따라서 영어만 보는 정규식은
+#:   `status == "error"`(예외를 올린 경우)만 잡고, **반환된 실패는 전부 놓쳤다.**
+#:   결과: 도구 실패에 대해 Reflexion 루프가 한 번도 작동하지 않았다.
+#:
+#: `[거부]` 는 **일부러 제외**한다. 증거 게이트의 거부는 장애가 아니라 **판정**이고
+#: (TS-006/TS-008), 코더가 ToolMessage 로 사유를 받아 다음 턴에 스스로 대응하는 것이
+#: 설계다. 거부를 오류로 취급하면 정상적인 게이트 작동마다 Reflexion 이 돌아
+#: 재시도 예산(max_retry)을 소모한다.
+TOOL_FAILURE_RE = re.compile(
+    r"\b(?:Error|Exception|Traceback|FAIL(?:ED)?)\b"
+    r"|\[(?:오류|보안 오류)\]",
+    re.I,
+)
+
 
 # ── 라우터: START 이후 초기화 여부 판단 ────────────────────────────────────
 
@@ -118,7 +137,7 @@ def route_after_act(state: HarnessState) -> str:
                 real_errors.append(f"[tool:{getattr(m, 'name', '?')}] {str(m.content)[:400]}")
                 continue
             content = m.content if isinstance(m.content, str) else str(m.content)
-            if re.search(r"\b(Error|Exception|Traceback|FAIL(?:ED)?)\b", content, re.I):
+            if TOOL_FAILURE_RE.search(content):
                 real_errors.append(f"[tool:{getattr(m, 'name', '?')}] {content[:400]}")
 
     # 누적 tool_call 수 계산 — 쓰기 없는 탐색 루프 폭주 방어

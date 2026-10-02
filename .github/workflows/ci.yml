@@ -4,7 +4,7 @@
 # (TS-001 루트 features.json / init.sh 의 PROJECT_ROOT / TS-006 의 run_tests / TS-012 의 3건).
 # CI 는 그 패턴에 대한 기계적 처방이다 — 선언한 모든 명령을 매 푸시마다 실제로 돌린다.
 #
-# 토큰 없는 모드이므로 **API 키 없이 전부 돈다**: 하네스 검증 176건은 LLM 을 스텁으로
+# 토큰 없는 모드이므로 **API 키 없이 전부 돈다**: 하네스 검증 404건은 LLM 을 스텁으로
 # 대체하고, 증거 게이트는 jest 만 쓴다. 비용 0.
 
 name: CI
@@ -77,8 +77,27 @@ jobs:
         env:
           GOOGLE_API_KEY: ""
 
+      - name: TS-017 — 설정 외부화·런너 추상화·프로젝트 검수
+        run: python repro_ts017.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      # 유료 경로 스모크 — LLM 을 스텁으로 바꿔 LangGraph 그래프를 끝까지 돌린다.
+      # 토큰 0. 이것이 없으면 유료 경로가 리팩터 아래서 조용히 깨진다 (TS-018).
+      - name: TS-018 — 유료 경로 스모크 (LangGraph, 토큰 0)
+        run: python repro_ts018.py
+        env:
+          GOOGLE_API_KEY: ""
+
       - name: 증거 태그 검사 (존재하지 않는 ID 는 실패)
         run: python -m harness.cli tags
+
+      # 검수의 자동 판정 항목은 **의도와 무관하게** 틀린 것이므로 차단 근거가 선다.
+      # 다만 현재 대상 앱에 위반 2건(미테스트 소스 14개, 미참조 export 7개)이 있어
+      # 지금 차단하면 CI 가 영구히 빨간불이 된다. 보고만 하고 종료 코드는 무시한다 —
+      # 숫자를 줄인 뒤 `|| true` 를 떼는 것이 다음 단계다.
+      - name: 프로젝트 검수 (객관 지표 — 현재는 보고만)
+        run: python -m harness.cli inspect || true
 
       - name: 통과 플래그 전수 재검증
         run: python -m harness.cli audit

@@ -30,12 +30,29 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-#: 테스트 파일 판별 — jest(단위)와 playwright(E2E)를 구분한다
+#: 테스트 파일 판별 기본값 — `.harness.json` 이 없을 때만 쓴다.
+#: 이 값은 설정 외부화 이전의 하드코딩과 **같다** (동작 변화 없음).
 UNIT_SUFFIXES = (".test.ts", ".test.tsx")
 E2E_SUFFIXES = (".spec.ts", ".spec.tsx")
 
-#: 기능 ID 포착 (커버리지 집계용). 단계 태그(F-004.5)도 ID 로 인정한다.
+#: 기능 ID 포착 기본값. 단계 태그(F-004.5)도 ID 로 인정한다.
+#: 프로젝트의 ID 형식은 `.harness.json` 의 id_pattern 이 정한다.
 _ID_RE = re.compile(r"(?<![\w-])(F-\d{3})(?:[.#-](\d+))?")
+
+
+def id_regex(id_pattern: str) -> re.Pattern[str]:
+    """프로젝트 ID 형식에서 태그 포착 정규식을 만든다.
+
+    `id_pattern` 은 캡처 그룹이 없어야 한다 — 여기서 그룹 1(ID)과
+    그룹 2(단계 번호)를 쓰기 때문이다. 괄호가 들어오면 비캡처로 바꾼다.
+    """
+    safe = re.sub(r"\((?!\?)", "(?:", id_pattern)
+    return re.compile(r"(?<![\w-])(" + safe + r")(?:[.#-](\d+))?")
+
+
+#: 스위트 판별 — 생태계마다 '이 블록이 이 기능을 검증한다'고 주장하는 구문이 다르다.
+#: 라벨 불일치 판정은 **스위트 라벨에만** 적용한다 (개별 테스트는 단계를 서술한다).
+_SUITE_RE_BY_RUNNER: dict[str, re.Pattern[str]] = {}
 
 #: 라벨은 **ID 를 포함한 문자열 리터럴 전체**에서 얻는다.
 #: 콜론만 믿었다가 `test('… 표시 (F-020)')` 처럼 ID 가 뒤에 오는 형태를 놓쳤다.
@@ -67,17 +84,49 @@ class TagRef:
     step: int | None = None  # 단계 태그(F-004.2)의 단계 번호
 
 
-def _kind_of(path: Path) -> str | None:
+def _kind_of(path: Path, units: tuple[str, ...], e2es: tuple[str, ...]) -> str | None:
+    """단위 / E2E / 테스트 아님. E2E 를 먼저 보는 이유: `.spec.ts` 가 양쪽 규약에
+    모두 쓰이는 프로젝트에서 E2E 선언이 있으면 그쪽이 더 구체적인 선언이다."""
     name = path.name
-    if name.endswith(E2E_SUFFIXES):
+    if name.endswith(e2es):
         return "e2e"
-    if name.endswith(UNIT_SUFFIXES):
+    if name.endswith(units):
         return "unit"
     return None
 
 
-def scan_tags(project_root: str) -> list[TagRef]:
-    """프로젝트의 모든 테스트 파일에서 기능 ID 참조를 수집한다."""
+def _suite_regex(runner: str) -> re.Pattern[str]:
+    """`이 블록이 기능을 검증한다`고 주장하는 구문 — 런너별.
+
+    pytest 규약: 기능 ID 는 **클래스 docstring 또는 테스트 함수의 docstring**
+    문자열 리터럴에 넣는다. 함수 이름(`def test_f005_...`)에는 하이픈을 쓸 수 없어
+    `F-005` 형태가 들어가지 않으므로, 이름이 아니라 문자열을 본다.
+    """
+    cached = _SUITE_RE_BY_RUNNER.get(runner)
+    if cached is not None:
+        return cached
+    if runner == "pytest":
+        pattern = re.compile(r"(?:^|[\s])class\s+\w+")
+    else:
+        pattern = re.compile(r"(?:^|[\s.;=(])(?:test\.)?describe(?:\.\w+)?\s*\(")
+    _SUITE_RE_BY_RUNNER[runner] = pattern
+    return pattern
+
+
+def scan_tags(project_root: str, cfg: Any | None = None) -> list[TagRef]:
+    """프로젝트의 모든 테스트 파일에서 기능 ID 참조를 수집한다.
+
+    규약(접미사·ID 형식·스위트 구문)은 `.harness.json` 이 정한다. 설정이 없으면
+    이 모듈의 기본 상수가 쓰이고, 그것은 설정 외부화 이전과 같은 값이다.
+    """
+    if cfg is None:
+        from harness.project import config_for
+        cfg = config_for(project_root)
+    units = tuple(cfg.unit_suffixes) or UNIT_SUFFIXES
+    e2es = tuple(cfg.e2e_suffixes) or E2E_SUFFIXES
+    id_re = id_regex(cfg.id_pattern)
+    suite_re = _suite_regex(cfg.runner)
+
     root = Path(project_root).resolve()
     refs: list[TagRef] = []
     for path in sorted(root.rglob("*")):
@@ -85,7 +134,7 @@ def scan_tags(project_root: str) -> list[TagRef]:
             continue
         if "node_modules" in path.parts or "dist" in path.parts:
             continue
-        kind = _kind_of(path)
+        kind = _kind_of(path, units, e2es)
         if kind is None:
             continue
         try:
@@ -97,13 +146,13 @@ def scan_tags(project_root: str) -> list[TagRef]:
             # 태그는 **문자열 리터럴**(테스트 이름) 안에만 있다.
             # 줄 전체를 스캔했더니 주석에 적은 ID("ARIA 는 F-026 이 다룬다")까지
             # 태그로 집계되었다. 주석은 증거가 아니다.
-            is_suite = bool(_DESCRIBE_RE.search(line))
+            is_suite = bool(suite_re.search(line))
             for lit in _LITERAL_RE.finditer(line):
                 text = lit.group(2)
-                matches = list(_ID_RE.finditer(text))
+                matches = list(id_re.finditer(text))
                 if not matches:
                     continue
-                label = _TRAIL_RE.sub("", _ID_RE.sub("", text).strip(" ()[]{}:·-"))
+                label = _TRAIL_RE.sub("", id_re.sub("", text).strip(" ()[]{}:·-"))
                 for match in matches:
                     refs.append(TagRef(
                         feature_id=match.group(1),

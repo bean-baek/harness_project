@@ -1,0 +1,23 @@
+{
+  "target": "web_target",
+  "runner": "jest",
+  "spec": "features.json",
+  "id_pattern": "F-\\d{3}",
+  "unit_suffixes": [
+    ".test.ts",
+    ".test.tsx"
+  ],
+  "e2e_suffixes": [
+    ".spec.ts",
+    ".spec.tsx"
+  ],
+  "source_dirs": [
+    "src"
+  ],
+  "typecheck": [
+    "npx",
+    "--no-install",
+    "tsc",
+    "--noEmit"
+  ]
+}

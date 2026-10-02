@@ -311,6 +311,27 @@ def _parse_findings(content: str) -> list[str]:
 # P-05: Reflector 노드 (5-Why + 에피소드 메모리)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _tool_failures_from(messages: list, limit: int = 5) -> str:
+    """최근 메시지에서 **실패한 ToolMessage** 를 뽑아 Reflector 가 읽을 형태로 만든다.
+
+    판정 기준은 `router.TOOL_FAILURE_RE` 와 동일하다 — 라우터가 'reflect 로 보낸다'고
+    판단한 것과 Reflector 가 '이게 실패다'라고 읽는 것이 어긋나면 안 된다.
+    한쪽만 고치면 다시 신호 없는 반성이 된다.
+    """
+    from harness.router import TOOL_FAILURE_RE
+
+    out: list[str] = []
+    for m in reversed(messages):
+        if not isinstance(m, ToolMessage):
+            continue
+        content = m.content if isinstance(m.content, str) else str(m.content)
+        if getattr(m, "status", None) == "error" or TOOL_FAILURE_RE.search(content):
+            out.append(f"[tool:{getattr(m, 'name', '?')}] {content[:400]}")
+        if len(out) >= limit:
+            break
+    return "\n".join(reversed(out))
+
+
 def reflector_node(state: HarnessState) -> dict[str, Any]:
     """
     실패 원인을 분석하고 다음 시도 전략을 생성하는 에이전트.
@@ -323,6 +344,18 @@ def reflector_node(state: HarnessState) -> dict[str, Any]:
     llm = _get_llm()
 
     error_ctx = "\n".join(state.get("error_log", [])[-5:])
+    # error_log 가 비어 있어도 **도구가 실패해서 여기 왔을 수 있다** (TS-018).
+    #
+    # 실측: `route_after_act` 는 실패한 ToolMessage 를 감지해 reflect 로 보내지만,
+    # 라우터는 상태를 쓰지 않으므로 그 실패 내용이 어디에도 기록되지 않는다.
+    # `coder_node` 의 오류 스캔은 **LLM 응답 본문**만 보고, 그것은 act 이전이다.
+    # 결과: 도구가 실패해서 Reflexion 이 돌았는데도 프롬프트에는
+    # "직접적인 오류 로그 없음" 이 들어갔다 — Reflector 가 신호 없이 반성했다.
+    #
+    # 보관된 F-004 증거("정보 없는 오류 신호에서 Reflexion 이 작화한다")의 기계적 원인이
+    # 이것이다. 신호가 비유사했던 게 아니라 **아예 없었다.**
+    if not error_ctx:
+        error_ctx = _tool_failures_from(state.get("messages", []))
     prev_reflections = "\n".join(state.get("reflections", [])[-3:])
     iteration = state.get("iteration", 0)
     findings = "\n".join(state.get("evaluation_findings", []))

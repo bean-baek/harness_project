@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,7 +38,7 @@ import config
 from harness.verify import (
     coverage_for_feature,
     feature_name_pattern,
-    jest_launcher,
+    runner_for,
     tagged_test_files,
 )
 
@@ -67,43 +66,37 @@ class MutantResult:
     detail: str = ""
 
 
-def _run(cmd: list[str], cwd: str, timeout: int) -> tuple[int | None, str]:
-    try:
-        r = subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=timeout,
-        )
-        return r.returncode, r.stdout + r.stderr
-    except subprocess.TimeoutExpired:
-        return None, "timeout"
-    except FileNotFoundError:
-        return None, "not found"
-
-
 def _typechecks(project_root: str) -> bool:
-    """변이가 구문·타입상 유효한지 — 깨진 변이를 '잡았다'로 세지 않기 위해."""
-    npx = shutil.which("npx")
-    if npx is None:
-        return True          # 확인할 수 없으면 통과시킨다 (보수적으로 측정만)
-    code, _ = _run([npx, "--no-install", "tsc", "--noEmit"], project_root, 180)
-    return code == 0
+    """변이가 구문·타입상 유효한지 — 깨진 변이를 '잡았다'로 세지 않기 위해.
+
+    정적 검사 커맨드가 선언되지 않았으면 True 를 돌려 **건너뛴다.** 모든 변이를
+    '무효'로 처리하면 점수가 사라지기 때문이다. 대신 `skipped_typecheck()` 가
+    그 사실을 보고서에 노출해 점수의 과대평가 가능성을 명시한다.
+    """
+    return runner_for(project_root).typechecks()[0]
+
+
+def skipped_typecheck(project_root: str) -> str:
+    """정적 검사를 건너뛴 사유. 빈 문자열이면 실제로 검사했다."""
+    try:
+        return runner_for(project_root).typechecks()[1]
+    except ValueError as exc:
+        return str(exc)
 
 
 def _tests_fail(project_root: str, feature_id: str, test_files: list[str]) -> bool:
-    """해당 기능의 태그 테스트가 **실패하는가** (= 변이를 잡았는가)."""
-    launcher = jest_launcher(project_root)
-    if launcher is None:
+    """해당 기능의 태그 테스트가 **실패하는가** (= 변이를 잡았는가).
+
+    런너에 위임한다. 실행 자체가 불가능하면(런너 없음) False — '잡지 못했다'로
+    본다. 실행 못 한 것을 '잡았다'로 세면 점수가 거짓으로 올라간다.
+    """
+    try:
+        runner = runner_for(project_root)
+    except ValueError:
         return False
-    code, _ = _run(
-        [
-            *launcher, *test_files,
-            "--rootDir", str(Path(project_root).resolve()),
-            "--testNamePattern", feature_name_pattern(feature_id),
-            "--no-coverage",
-        ],
-        project_root,
-        config.TOOL_TIMEOUTS.get("run_tests", 120),
-    )
+    if runner.launcher() is None:
+        return False
+    code, _ = runner.run_scoped(test_files, feature_name_pattern(feature_id))
     return code not in (0, None)
 
 

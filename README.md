@@ -1,5 +1,7 @@
 # 하네스 엔지니어링 (Harness Engineering)
 
+**한국어** · [English](README_EN.md)
+
 [![CI](https://github.com/bean-baek/harness_project/actions/workflows/ci.yml/badge.svg)](https://github.com/bean-baek/harness_project/actions/workflows/ci.yml)
 
 > **자율 코딩 에이전트를 "돌리는 법"이 아니라 "운영하는 법"을 만드는 프로젝트.**
@@ -15,7 +17,7 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 | | |
 |---|---|
 | **결과물이다** | `harness/` — 에이전트 실행·검증·측정·중단을 관리하는 운영 계층 |
-| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **16건**의 재현·원인·수정·검증 기록 |
+| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **18건**의 재현·원인·수정·검증 기록 |
 | **결과물이 아니다** | `web_target/` — 투두 앱. 하네스를 시험하기 위한 **피험체**이자 벤치마크 과제 |
 
 `web_target` 의 기능 75개(`features.json`)는 목표가 아니라 **측정 수단**이다.
@@ -44,10 +46,18 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 | 강제 | `python -m harness.cli` (결정론적) | 동일한 게이트 + LangGraph 라우터 |
 | 무인 실행 | 불가 — 사람이 세션을 열어야 한다 | **가능** (`night_shift.py`, 30분 타임아웃) |
 | 의존성 | 표준 라이브러리 + jest | langchain, langgraph, API 키 |
+| 검증 | 회귀 326건 + 실제 jest | **스모크 78건** (LLM 스텁, 토큰 0 — TS-018) |
 
 **왜 분리했는가**: 코드를 성격별로 세어보니 결정론적 기계(게이트·측정·태그 린터·도구·CLI)
 **2,703줄**은 토큰을 전혀 쓰지 않고, **2,357줄**만이 유료 API를 돌리기 위해 존재한다.
 **가치 있는 쪽은 이미 무료였다** (TS-010 — 당시 측정은 2,060줄, 이후 측정·린터 추가로 늘었다).
+
+**유료 경로는 실제로 돌았고, 이제 검증된다**: `.harness_memory/` 에 2026-04-14 자
+Reflexion 산출물 67개가 있고 TS-004/005/007 은 돌려봐야만 발견된 실패다. 그런데 그 뒤
+6개월간 아무 테스트도 그 경로를 거치지 않아 — 커버리지로 재어보니 `graph.py`·`router.py`·
+`agents.py`·`memory.py` 359줄 중 **실행되는 로직이 4줄**이었다 — TS-017 의 리팩터가 그
+위에서 눈을 감고 진행됐다. `repro_ts018.py` 가 LLM 을 스텁으로 바꿔 그래프를 끝까지 돌려
+그 맹점을 없앴고, **그 즉시 실제 버그 2건을 찾아냈다** (§11 TS-018).
 
 **왜 전부 마크다운으로 가지 않는가**: 마크다운은 **권고만** 할 수 있다.
 "테스트를 먼저 실행하십시오"가 docstring 권고였을 때 에이전트는 무시하고 자가 채점했고,
@@ -80,6 +90,8 @@ python -m harness.cli audit          # 통과 플래그 전수 재검증
 python -m harness.cli tags           # 태그가 옳은 기능을 가리키는지 검사
 python -m harness.cli mutate F-005   # 증거가 실제로 무는지 측정 (느림, 게이트 아님)
 python -m harness.cli report         # 판별력 + 게이트 판정 집계 + 실행 로그
+python -m harness.cli init           # 프로젝트 검수 → .harness.json 생성 (TS-017)
+python -m harness.cli inspect        # 객관 지표 추출 + 의도가 필요한 항목 분리
 ```
 
 `verify` / `mark` / `unmark` 는 판정마다 `harness_runtime.log` 에 기록을 남긴다
@@ -145,6 +157,131 @@ python -m harness.cli mutate F-005
 
 현재 F-005 점수는 **50%**(잡음 2 / 생존 2 / 폐기 2)이고, 생존 2건은 모두
 F-005 가 스쳐 지나가는 `LoginForm.tsx` 에 있다.
+
+
+### 4.3 다른 프로젝트에 붙이기 (TS-017)
+
+생태계에 묶인 코드는 `harness/runner.py` 하나다. 나머지(판정 정책·태그·측정·CLI)는
+런너를 모른다. 프로젝트별 규약은 **`.harness.json`** 이 선언한다.
+
+```bash
+# 1) 검수 — 무엇을 어떻게 검사할지 추론하고 근거를 출력 (쓰지 않는다)
+python -m harness.cli init --harness-root /path/to/project --dry-run
+
+# 2) 맞으면 설정 생성
+python -m harness.cli init --harness-root /path/to/project
+```
+
+```jsonc
+// .harness.json — 선언된 키가 추론을 이긴다. 틀린 것만 적으면 된다.
+{
+  "target": "web_target",              // 검사 대상 앱 경로
+  "runner": "jest",                    // jest | vitest | pytest
+  "spec": "features.json",             // 명세 파일
+  "id_pattern": "F-\\d{3}",            // 기능 ID 형식
+  "unit_suffixes": [".test.ts", ".test.tsx"],   // 증거로 계수하는 테스트
+  "e2e_suffixes": [".spec.ts"],                 // 증거로 계수하지 않는다 (런너가 다름)
+  "source_dirs": ["src"],
+  "typecheck": ["npx", "--no-install", "tsc", "--noEmit"]
+}
+```
+
+설정 파일이 **없으면 기본값은 외부화 이전의 하드코딩과 같다** — 기존 사용자의 동작은
+변하지 않는다(회귀 236건이 설정 추가 전/후 모두 통과하는 것으로 확인).
+
+출력은 값마다 출처를 표시한다. **`기본값`은 "근거 없이 골랐다"는 자백이다** —
+그 줄만 `.harness.json` 에 적어 덮으면 된다.
+
+```
+[실측] runner = vitest
+       └ package.json 의 의존성에 vitest 가 있습니다
+[기본] typecheck = (없음)
+       └ tsconfig.json 이 없습니다 — 돌연변이의 유효성 확인을 건너뜁니다
+```
+
+#### 다른 생태계 추가
+
+`harness/runner.py` 에 `Runner` 하위 클래스를 넣고 네 연산만 구현한다.
+
+| 연산 | 무엇을 돌려주나 |
+|---|---|
+| `run_all()` | 전체 스위트 (종료코드, 출력) |
+| `results()` | 테스트 **개별 이름과 상태** — 게이트가 기능 ID 를 인용하는 테스트를 찾는다 |
+| `coverage(files, pattern)` | 주어진 테스트만 돌렸을 때 **소스별 실행 statement 수** |
+| `typechecks()` | 코드가 정적으로 유효한가 (돌연변이 유효성 확인) |
+
+모든 연산은 `(값, 진단)` 을 돌려주고 값이 `None` 이면 **측정 실패**다.
+측정 실패는 통과가 아니다 — 게이트가 거부로 처리한다.
+
+#### 테스트가 하나도 없는 프로젝트
+
+게이트는 "기능 ID 를 인용하는 통과 테스트"를 요구하므로 **모든 기능을 거부한다.**
+설계대로 동작하는 것이지만 쓸 수는 없다. `inspect` 가 막는 것을 전부 열거한다.
+
+```
+→ 붙기 전에 해결할 것 3건:
+   1. 런너(vitest)를 실행할 수 없습니다. npm install -D vitest 로 추가하십시오.
+   2. 테스트 파일이 0개입니다. ... 지금 붙이면 모든 기능이 거부됩니다
+   3. 명세(features.json)가 없습니다. 이것이 사람이 채워야 하는 유일한 입력입니다
+```
+
+### 4.4 의도 없이 판정되는 것 — `inspect`
+
+> *"내가 테스트를 정의해야 한다는 거야? 프로젝트를 검수해서 객관적 평가 지표를
+> 세팅할 수 없어?"*
+
+절반은 가능하다. 경계가 어디인지가 중요하다.
+
+| | 무엇인가 | 누가 정하나 |
+|---|---|---|
+| **명세** (`features.json`) | "무엇이 되어야 하는가" = **의도** | 사람 |
+| **불변식** | 코드 안의 **두 지점이 어긋나는가** | 기계 |
+
+**순환과 불변식은 다르다.** 이 구분이 이 프로젝트에서 가장 비싸게 배운 것이다(TS-013).
+
+- 순환 — 구현 A 를 읽어 명세를 쓰고 구현 A 를 검사한다. 항상 통과한다. 무의미.
+- 불변식 — 선언 D 와 구현 I 의 **일치**를 본다. 둘 중 하나가 틀리면 잡힌다.
+
+`routes.ts` 의 `PROTECTED_PATHS` 와 `App.tsx` 의 라우트 등록은 **서로 다른 두 지점**이다.
+"선언된 경로가 모두 등록되는가"는 코드에서 추출했지만 순환이 아니다 —
+판정에 "무엇이 보호되어야 하는가"라는 의도가 필요하지 않다.
+
+`inspect` 는 둘을 나눠 보고한다.
+
+**자동 판정** (`auto=True`, 종료 코드 1 로 차단 가능)
+
+| 검사 | 선언 ↔ 구현 |
+|---|---|
+| `dead-script` | npm scripts ↔ dependencies (TS-012 재현) |
+| `route-completeness` | 경로 목록 상수 ↔ 라우터 등록 |
+| `untested-source` | 소스 디렉터리 ↔ 테스트의 import (커버리지 0 확정) |
+| `unreferenced-export` | export ↔ 프로젝트 전체 import |
+
+**의도 필요** (`auto=False`, 후보로만 제시 — 종료 코드에 영향 없음)
+
+| 후보 | 왜 기계가 못 정하나 |
+|---|---|
+| `form-rules` | 폼이 있다. **무엇을 거부해야 하는가**는 코드에 적혀 있지 않다 |
+| `error-path` | `await` 에 오류 분기가 없다. 실패 시 무엇을 보일지는 의도다 |
+
+```bash
+python -m harness.cli inspect --write-draft   # features.draft.json 생성
+```
+
+초안은 **`features.json` 에 직접 쓰지 않는다.** 쓰면 하네스가 자기가 코드에서 뽑은
+명세로 그 코드를 검사하게 되어 순환이다. 각 항목에 `origin` 과 `needs_review` 가 박혀
+출처를 지운 채 섞이지 않는다.
+
+#### 정적 분석의 한계를 명시한다
+
+검수를 처음 돌렸을 때 위반 4건 중 **2건이 오탐**이었다(둘 다 수정). 이 프로젝트는
+돌연변이 점수에서 이미 같은 결론에 도달했다 — **오해를 부르는 수치는 없는 수치보다 나쁘다.**
+
+- `.map()` 으로 생성된 라우트를 "누락"으로 봤다 → 목록을 순회하면 누락이 **구조적으로
+  불가능**하므로 통과. 리터럴과 변수가 섞이면 **판정을 보류**한다.
+- `/login` 이 `PROTECTED_PATHS` 에 없는 것을 위반으로 봤다 → 역방향에는 근거가 없다.
+  경로 목록은 보통 부분집합이다. 역방향 검사를 삭제했다.
+- `import { type ProtectedPath }` 의 인라인 `type` 을 떼지 않아 미참조로 봤다 → 수정.
 
 ---
 
@@ -301,9 +438,11 @@ python -m harness.cli report
 
 | 경로 | 추적 | 내용 |
 |---|---|---|
+| `.harness.json` | O | 런너·대상·규약 선언. 없으면 기본값 = 외부화 이전 하드코딩 (TS-017) |
 | `web_target/features.json` | O | 기능 75개 + `passes` + `verification` 증거 — **진실의 원천** |
+| `features.draft.json` | X | `inspect --write-draft` 산출물. **명세가 아니다** — 사람이 옮겨야 효력 |
 | `web_target/src/routes.ts` | O | 보호 경로 목록의 단일 출처 (앱과 테스트가 공유, TS-013) |
-| `troubleshooting/` | O | 실패 모드 14건 + `evidence/` 1차 자료 |
+| `troubleshooting/` | O | 실패 모드 18건 + `evidence/` 1차 자료 |
 | `.harness_memory/<session>/` | O | Reflexion 반성 기록. 같은 세션 ID 로 재실행 시 주입된다 |
 | `.claude/skills/harness/` | O | 토큰 없는 모드의 절차 |
 | `harness_runtime.log` | X | 나이트 시프트 출력. `cli report` 의 입력 데이터 |
@@ -316,7 +455,9 @@ python -m harness.cli report
 기능 6/75 통과 — 전부 증거 기록 보유
 jest 51/51 (7 suites) · E2E 14 통과 / 4 보류 / 실패 0
 lint exit 0 · build exit 0 · tsc 오류 0
-하네스 회귀 236건 (repro_ts005/006/008/009/010/015/016) 전부 통과
+하네스 회귀 404건 (repro_ts005/006/008/009/010/015/016/017/018) 전부 통과
+유료 경로 스모크 78건 — LangGraph 그래프를 토큰 0 으로 끝까지 실행
+다른 프로젝트 실측: main_portfolio(Vite, 테스트 0개) 검수 통과 — 막는 사유 3건 정확히 보고
 ```
 
 | 기능 | 근거 테스트 | 단계 커버리지 |
@@ -340,6 +481,8 @@ python repro_ts009.py   # 측정 계층 + 종료 상태 기록          36/36
 python repro_ts010.py   # 토큰 없는 모드 의존성 독립          22/22
 python repro_ts015.py   # 실행 기록 + 게이트 판정 집계        29/29
 python repro_ts016.py   # 커버리지 게이트 + 돌연변이 측정      31/31
+python repro_ts017.py   # 설정 외부화·런너 추상화·검수          90/90
+python repro_ts018.py   # 유료 경로 스모크 (LangGraph, 토큰 0)   78/78
 
 cd web_target
 npm run lint       # exit 0
@@ -359,14 +502,25 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 - **하네스 유무의 A/B 를 돌리지 못했다** — §6 은 *게이트 기준*의 A/B 이고, 하네스 전체의
   효과는 미측정이다. 설계는 서 있으나 수치가 없다.
 - 게이트 판정 집계(§6.1)는 이제 쌓이기 시작했을 뿐이다 — 표본이 적다.
-- **유료 경로 2,357줄이 쓰지 않는 모드를 위해 남아 있다.** 보존이냐 삭제냐를
-  명시적으로 정해야 한다(현재는 어정쩡하게 방치).
+- 유료 경로는 **스모크 테스트로 고정했지만**(TS-018) 실제 LLM 과 끝까지 돌린 것은
+  2026-04-14 이 마지막이다. 스텁은 배선·라우팅·종료 코드를 보장하고, 프롬프트 품질과
+  실제 모델 거동은 보장하지 않는다.
+  남은 커버리지 공백: `tools.py` 15% (도구 12개 중 일부만 실행), `memory.py` 18%.
 - Evaluator 의 LLM 채점과 `EVAL_WEIGHTS` / 75점 임계는 **근거 없는 상수**다.
   단, `features.json` 의 플래그는 그 점수에 의존하지 않는다 — 분리되어 있다.
 - 태그된 테스트가 **제대로** 검증하는지는 게이트가 완전히 보지 못한다.
   커버리지 요구로 공허한 테스트는 막았지만(TS-016), 실행하면서 단정하지 않는 테스트는
   돌연변이 측정으로만 드러나고 그것은 게이트가 아니다 (느려서).
 - 커버리지 임계 80% 대비 실측 미달.
+- **Reflexion 의 프롬프트 품질은 미검증이다.** TS-018 이 "오류 신호가 프롬프트에 들어간다"는
+  것까지 고정했을 뿐, 그 반성이 유용한지는 실제 모델로 돌려봐야 안다 (F-004 증거 참조).
+- **`inspect` 는 정적 분석이다.** 재export·동적 import·리플렉션을 보지 못한다.
+  오탐 3건을 실측으로 잡아 고쳤지만(TS-017), 같은 종류가 더 있을 수 있다 —
+  자동 판정 결과는 차단 근거로 쓰기 전에 한 번 눈으로 확인할 것.
+- **pytest 의 커버리지는 `pytest-cov` 가 필요하다.** 없으면 측정 실패 → 게이트가
+  거부한다(설계대로). 설치 안내는 진단 메시지에 들어 있다.
+- vitest·pytest 어댑터는 **단위 검증으로만 확인했다** — 실제 vitest/pytest 프로젝트에서
+  끝까지 돌려본 것은 아니다. jest 경로만 실 환경 검증(51/51)을 거쳤다.
 
 ---
 
@@ -378,7 +532,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 
 | 잡 | 내용 |
 |---|---|
-| `하네스 검증` | `repro_ts005/006/008/009/010/015/016` (236건) + `cli tags` + `cli audit` + `cli report` |
+| `하네스 검증` | `repro_ts005/…/017/018` (404건) + `cli tags` + `cli inspect` + `cli audit` + `cli report` |
 | `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
@@ -404,6 +558,8 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-014 | 태그가 엉뚱한 기능을 가리켜도 게이트가 보지 못한다 — 피험체 결함은 어디까지 고치는가 |
 | TS-015 | 토큰 없는 모드로 옮기며 측정 계층의 절반이 고아가 됐다 — 기록자가 사라진 것을 몰랐다 |
 | TS-016 | 아무것도 실행하지 않는 테스트가 완벽한 증거로 계수됐다 — 커버리지 게이트와 돌연변이 측정 |
+| TS-017 | 하네스가 레포 한 곳에만 붙어 있었다 — 설정 외부화·런너 추상화·프로젝트 검수 |
+| TS-018 | 유료 경로가 6개월간 검증 없이 방치됐다 — 스모크 테스트가 즉시 버그 2건을 찾아냈다 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 
