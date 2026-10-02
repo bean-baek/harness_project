@@ -17,7 +17,7 @@ trustworthy while nobody is watching.** This repository implements the apparatus
 | | |
 |---|---|
 | **Is the deliverable** | `harness/` — the operating layer that runs, verifies, measures, and halts the agent |
-| **Is the deliverable** | `troubleshooting/` — **21 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
+| **Is the deliverable** | `troubleshooting/` — **22 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
 | **Is NOT the deliverable** | `web_target/` — a todo app. The **test subject** and benchmark task for the harness |
 
 The 75 features in `web_target` (`features.json`) are not the goal; they are the
@@ -50,8 +50,8 @@ harness/              the operating layer — gate, measurement, runner, inspect
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
   nodes/agents.py     the 5 agent nodes (paid path)
-verification/         549 regression checks — one script per failure mode
-troubleshooting/      21 failure-mode records + evidence/ primary sources
+verification/         617 regression checks — one script per failure mode
+troubleshooting/      22 failure-mode records + evidence/ primary sources
 web_target/           the test-subject todo app (not the deliverable)
 .harness_memory/      Reflexion primary data — cannot be regenerated, kept
 docs/ scripts/ .claude/skills/harness/
@@ -216,10 +216,53 @@ and only **3** were real comparisons — the rest were JSX (108) and generics (3
 producing `if (false))`. The mutations were testing **the compiler, not the tests**, and the
 "discarded" tally hid that fact.
 
-After the fix, F-005 scores **40%** (killed 2 / survived 3 / **discarded 0**) in 26.7s.
-Both kills are in F-005's own file (`ProtectedRoute.tsx`) and all three survivors are in
-`LoginForm.tsx`, which it merely passes through — **2 of 2 were killed in its own file.**
-Before the fix, two mutants in that file were discarded, so this was invisible.
+**Detection reach was blocked in two places too (TS-022).**
+
+Sampling was **pinned to the top of each file** — only `lines[0]` per rule.
+`LoginForm.tsx` has 19 mutation sites, **all on executed lines**, yet only 3 were attempted;
+line 32 always won, so lines 55–56 — `safeRedirectTarget`'s open-redirect guard, i.e.
+**TS-011's fix** — were never tested. Overall reach was 23 of 59 sites (39%).
+
+`select_spread()` now gathers every candidate and picks at **even intervals** (not randomly:
+reproducibility is what lets a regression pin it). Budget 3 → `[0, 9, 18]`.
+
+The operators **could not touch array declarations.** `routes.ts` has 6 lines executed by
+the evidence and **zero** mutation sites — arrays contain no comparisons, logic, or
+conditions. So there was no way to inject **the TS-013 bug shape**. Measured by hand:
+
+| Member removed | Result | Suite |
+|---|---|---|
+| `/` | **survived** | 49 passed / 0 failed |
+| `/dashboard` | killed | 48 passed / 1 failed |
+| `/profile` | **survived** | 49 passed / 0 failed |
+| `/settings` | **survived** | 49 passed / 0 failed |
+
+**Three of four protected paths can be deleted and everything still passes** —
+`test.each(PROTECTED_PATHS)` simply **runs fewer tests** when the list shrinks. Meanwhile all
+four ladder rungs (tag, coverage, independence, mutation) **pass.**
+
+The `drop_member()` operator closes that hole, reusing the "single-source collections" that
+`independence` already locates — the two modules compose to inject **declaration defects.**
+
+**The `types` status** — removing `/dashboard` was first classified as "discarded." But
+`drop_member` preserves the array literal, so the syntax is **valid by construction.** tsc
+failed because `Record<ProtectedPath, …>` ties the list to its consumer at the type level —
+that is **type-level detection.** It is excluded from the evidence score's numerator (what
+caught it was not a test) but not buried as "discarded" (that would erase the fact that
+structural protection exists).
+
+**Sample size is printed with the number**: `16 of 27 candidates attempted`. Without it,
+"33%" gives no way to know how many samples it rests on. Raise it with `--max-per-file` /
+`--max-collection`.
+
+After the fix, F-005 scores **33%** (killed 5 / survived 10 / discarded 0 / caught-by-types 1)
+over 16 of 27 candidates. The score going *down* is the improvement — the 40% from 3 samples
+was an **overestimate** biased to the top of the file, and widening from 10 to 16 samples
+holds at 33%.
+
+**Newly surfaced**: survivors at `LoginForm.tsx:32, 89, 188` (first reached by spread
+sampling), and the fact that `/`, `/profile`, and `/settings` in `PROTECTED_PATHS` are
+**not pinned by any test.**
 
 ### 4.3 Attaching it to another project (TS-017)
 
@@ -592,7 +635,7 @@ match the app would be the worst choice**, so the signal was preserved instead (
 | `web_target/features.json` | Yes | 75 features + `passes` + `verification` evidence — **the source of truth** |
 | `features.draft.json` | No | output of `inspect --write-draft`. **Not a spec** — a human must move it over |
 | `web_target/src/routes.ts` | Yes | single source of truth for the protected-path list (shared by app and tests, TS-013) |
-| `troubleshooting/` | Yes | 21 failure modes + `evidence/` primary sources |
+| `troubleshooting/` | Yes | 22 failure modes + `evidence/` primary sources |
 | `.harness_memory/<session>/` | Yes | Reflexion records. Injected when re-run with the same session ID |
 | `.claude/skills/harness/` | Yes | the tokenless-mode procedure |
 | `harness_runtime.log` | No | night-shift output. Input data for `cli report` |
@@ -605,7 +648,7 @@ match the app would be the worst choice**, so the signal was preserved instead (
 6/75 features passing — all with recorded evidence
 jest 51/51 (7 suites) · E2E 14 passed / 4 deferred / 0 failed
 lint exit 0 · build exit 0 · 0 tsc errors
-549 harness regression checks (verification/repro_ts005/…/021) all passing
+617 harness regression checks (verification/repro_ts005/…/022) all passing
 Self-audit: 0 dead config · 0 orphan code · 0 unused imports
 78 paid-path smoke checks — the LangGraph graph driven end to end with zero tokens
 Measured on another project: main_portfolio (Vite, 0 tests) inspected cleanly — 3 blockers reported accurately
@@ -637,6 +680,7 @@ python verification/repro_ts018.py   # paid-path smoke (LangGraph, zero tokens) 
 python verification/repro_ts019.py   # dead-config / orphan-code recurrence guard      37/37
 python verification/repro_ts020.py   # evidence independence (self-supply, channels)   50/50
 python verification/repro_ts021.py   # mutation operators + mutation gate              58/58
+python verification/repro_ts022.py   # detection reach (sampling, collection operator) 68/68
 
 cd web_target
 npm run lint       # exit 0
@@ -691,7 +735,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/021` (549 checks) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/022` (617 checks) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -722,6 +766,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-019 | Three settings the docs advertised did nothing — dead config's second recurrence, plus 21 orphans |
 | TS-020 | The empty rung on the evidence ladder was independence, not depth — TS-013 generalized into policy |
 | TS-021 | The mutation operators tested the compiler, not the tests — 3 of 190 match sites were real comparisons |
+| TS-022 | Two holes detection never reached — sampling was pinned to the top of each file, operators could not touch arrays |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

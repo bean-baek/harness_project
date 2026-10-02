@@ -66,6 +66,40 @@ MUTATIONS: tuple[tuple[str, str, str | None], ...] = (
 #: 파일 하나에서 시도할 최대 변이 수 — 시간 때문에 제한한다
 MAX_MUTANTS_PER_FILE = 3
 
+#: 컬렉션 멤버 제거 변이의 상한 (TS-022). 선언된 컬렉션은 보통 소수이므로 따로 둔다.
+MAX_COLLECTION_MUTANTS = 4
+
+
+def select_spread(candidates: list[Any], budget: int) -> list[Any]:
+    """후보에서 **고르게 퍼진** 부분집합을 고른다 (TS-022).
+
+    왜 '첫 번째'를 쓰지 않는가 — 실측:
+      이전 구현은 규칙당 `lines[0]` 만 썼다. `LoginForm.tsx` 는 변이 가능 지점이
+      19곳이고 **전부 테스트가 실행하는 줄**인데, 시도되는 것은 3곳뿐이었다.
+      32번 줄이 항상 이기므로 55·56번 줄 — `safeRedirectTarget` 의 오픈 리다이렉트
+      가드, 즉 TS-011 의 수정 — 은 **한 번도 변이 검사를 받지 못했다.**
+
+      예산이 한정된 것 자체는 문제가 아니다. 문제는 **항상 같은 곳**을 고르는 것이다.
+      무작위가 아니라 등간격을 쓰는 이유: 재현 가능해야 회귀로 고정할 수 있다.
+    """
+    if budget <= 0 or not candidates:
+        return []
+    if len(candidates) <= budget:
+        return list(candidates)
+    step = (len(candidates) - 1) / (budget - 1) if budget > 1 else 0
+    picked = [candidates[round(i * step)] for i in range(budget)]
+    # round 이 같은 인덱스를 두 번 고를 수 있다 — 중복을 제거하고 뒤에서 채운다
+    out: list[Any] = []
+    for c in picked:
+        if c not in out:
+            out.append(c)
+    for c in candidates:
+        if len(out) >= budget:
+            break
+        if c not in out:
+            out.append(c)
+    return out[:budget]
+
 
 @dataclass
 class MutantResult:
@@ -122,6 +156,82 @@ def _candidate_lines(text: str, pattern: str) -> list[int]:
     return hits
 
 
+def drop_member(text: str, collection: str, member: str) -> str | None:
+    """앱이 선언한 컬렉션에서 멤버 하나를 제거한다 (TS-022).
+
+    왜 이 연산자가 필요한가 — 실측:
+      `routes.ts` 는 F-005 의 증거가 6줄 실행하는데 기존 연산자의 변이 지점이
+      **0곳**이었다. 배열 선언에는 비교·논리·조건이 없다. 그래서 다음을 주입하지
+      못했다 — `PROTECTED_PATHS` 에서 경로를 지우는 것, 즉 **TS-013 의 버그 모양**
+      그 자체다.
+
+      실험 결과 보호 경로 4개 중 **3개를 지워도 전체 스위트가 통과**했다
+      (51 → 49 통과, 실패 0). `test.each(PROTECTED_PATHS)` 는 목록이 줄면
+      **덜 돌 뿐**이기 때문이다. `/dashboard` 만 잡혔고 그 이유는
+      `expect(PROTECTED_PATHS).toContain('/dashboard')` 로 이름이 박혀 있어서였다.
+
+      기존 사다리 네 칸(태그·커버리지·독립성·돌연변이)이 **전부 통과하는 동안**
+      명세가 보호를 요구하는 경로가 사라진다.
+
+    선언 범위 안에서만 제거한다 — 같은 문자열이 파일 다른 곳에 있어도 건드리지 않는다.
+    제거할 수 없으면(선언을 찾지 못함, 멤버가 없음) `None`.
+    """
+    from harness.independence import _COLLECTION_RE
+
+    for m in _COLLECTION_RE.finditer(text):
+        if m.group(1) != collection:
+            continue
+        body = m.group(2)
+        body_start = m.start(2)
+        # 멤버 리터럴과 **뒤따르는 쉼표**(없으면 앞의 쉼표)를 함께 지운다
+        pat = re.compile(rf"""(\s*)(['"]){re.escape(member)}\2(\s*,)?""")
+        hit = pat.search(body)
+        if hit is None:
+            return None
+        if hit.group(3) is None:
+            # 마지막 멤버 — 앞쪽 쉼표를 걷어내 `['a',]` 가 되지 않게 한다
+            new_body = body[:hit.start()].rstrip().rstrip(",") + body[hit.end():]
+        else:
+            new_body = body[:hit.start()] + body[hit.end():]
+        if new_body == body:
+            return None
+        return text[:body_start] + new_body + text[body_start + len(body):]
+    return None
+
+
+def _member_line(text: str, collection: str, member: str) -> int:
+    """멤버가 **선언 안에서** 몇 번째 줄에 있는가.
+
+    파일 전체에서 첫 occurrence 를 찾으면 안 된다 — `'/'` 같은 짧은 멤버는 주석의
+    경로 문자열(`web_target/src/routes.ts`)에 먼저 걸려 1번 줄이 나온다(실측).
+    """
+    from harness.independence import _COLLECTION_RE
+
+    for m in _COLLECTION_RE.finditer(text):
+        if m.group(1) != collection:
+            continue
+        body, body_start = m.group(2), m.start(2)
+        hit = re.search(rf"""(['"]){re.escape(member)}\1""", body)
+        if hit is None:
+            return text[:body_start].count("\n") + 1
+        return text[:body_start + hit.start()].count("\n") + 1
+    return 0
+
+
+def collection_candidates(project_root: str, covered_files: list[str]) -> list[tuple]:
+    """증거가 실행하는 파일에 선언된 컬렉션의 (컬렉션, 파일, 멤버) 후보."""
+    from harness.independence import declared_collections
+
+    names = {Path(f).name for f in covered_files}
+    out: list[tuple] = []
+    for coll in declared_collections(project_root):
+        if Path(coll.declared_in).name not in names:
+            continue
+        for member in coll.members:
+            out.append((coll.name, coll.declared_in, member))
+    return out
+
+
 def neutralize_condition(line: str) -> str | None:
     """`if (…)` 의 조건을 `false` 로 바꾼다 — **괄호를 세어** 균형을 지킨다.
 
@@ -162,13 +272,25 @@ def mutate_feature(
     project_root: str,
     feature_id: str,
     max_files: int = 2,
+    max_per_file: int | None = None,
+    max_collection: int | None = None,
 ) -> dict[str, Any]:
     """기능 하나의 증거에 대해 돌연변이 점수를 측정한다.
 
+    Args:
+        max_files:      줄 변이 대상 파일 수 (커버리지 상위 N개)
+        max_per_file:   파일당 줄 변이 수. None 이면 MAX_MUTANTS_PER_FILE.
+                        후보가 예산을 넘으면 **고르게 퍼뜨려** 고른다 — 첫 번째만
+                        고르면 파일 앞머리만 영원히 검사된다 (TS-022).
+        max_collection: 컬렉션 멤버 제거 변이 수. None 이면 MAX_COLLECTION_MUTANTS.
+
     Returns:
-        {feature, mutants: [...], killed, survived, invalid, score, sources}
+        {feature, mutants: [...], killed, survived, invalid, score, sources, sites}
         score = killed / (killed + survived) — invalid 는 분모에서 제외한다.
+        sites 는 **후보 총수**다 — 예산 때문에 몇 개를 건너뛰었는지 보이게 한다.
     """
+    budget_file = MAX_MUTANTS_PER_FILE if max_per_file is None else max_per_file
+    budget_coll = MAX_COLLECTION_MUTANTS if max_collection is None else max_collection
     test_files = tagged_test_files(project_root, feature_id)
     if not test_files:
         return {"error": f"{feature_id} 태그가 있는 단위 테스트가 없습니다."}
@@ -189,6 +311,7 @@ def mutate_feature(
             targets.append(found[0])
 
     results: list[MutantResult] = []
+    site_total = 0                      # 후보 총수 — 예산 때문에 건너뛴 수가 보이게 한다
     for target in targets:
         original = target.read_text(encoding="utf-8")
         rel = str(target.relative_to(root)).replace("\\", "/")
@@ -196,14 +319,21 @@ def mutate_feature(
         backup = tempfile.mkdtemp(prefix="harness-mut-")
         backup_file = Path(backup) / target.name
         backup_file.write_text(original, encoding="utf-8")
+        # 후보를 **전부 모은 뒤** 고르게 퍼뜨려 고른다 (TS-022).
+        # 이전 구현은 규칙 순서대로 돌며 각 규칙의 `lines[0]` 만 썼다 — 그래서
+        # 파일 앞머리의 같은 줄만 영원히 검사되고, `LoginForm.tsx` 의 19개 지점 중
+        # 16개(오픈 리다이렉트 가드 포함)가 한 번도 검사되지 않았다.
+        candidates = [
+            (lineno, rule, pattern, replacement)
+            for rule, pattern, replacement in MUTATIONS
+            for lineno in _candidate_lines(original, pattern)
+        ]
+        candidates.sort(key=lambda c: (c[0], c[1]))
+        site_total += len(candidates)
         try:
-            for rule, pattern, replacement in MUTATIONS:
-                if applied >= MAX_MUTANTS_PER_FILE:
+            for lineno, rule, pattern, replacement in select_spread(candidates, budget_file):
+                if applied >= budget_file:
                     break
-                lines = _candidate_lines(original, pattern)
-                if not lines:
-                    continue
-                lineno = lines[0]
                 src = original.split("\n")
                 if replacement is None:
                     mutated_line = neutralize_condition(src[lineno - 1])
@@ -241,9 +371,63 @@ def mutate_feature(
             target.write_text(original, encoding="utf-8")
             shutil.rmtree(backup, ignore_errors=True)
 
+    # ── 컬렉션 멤버 제거 (TS-022) ───────────────────────────────────────────
+    #
+    # 줄 변이가 도달하지 못하는 결함 모양이다. `routes.ts` 는 증거가 6줄 실행하는데
+    # 비교·논리·조건이 없어 변이 지점이 0곳이었다. 그래서 "명세가 보호를 요구하는
+    # 경로가 목록에서 사라진다"(= TS-013) 를 주입할 수 없었다.
+    all_sources = [e.split(" (")[0] for e in cov["sources"]]
+    coll_cands = collection_candidates(project_root, all_sources)
+    site_total += len(coll_cands)
+    for coll_name, declared_in, member in select_spread(coll_cands, budget_coll):
+        found = [p for p in root.rglob(Path(declared_in).name)
+                 if "node_modules" not in p.parts]
+        if not found:
+            continue
+        target = found[0]
+        original = target.read_text(encoding="utf-8")
+        mutated = drop_member(original, coll_name, member)
+        if mutated is None or mutated == original:
+            continue
+        rule = f"컬렉션 멤버 제거 ({coll_name} ← {member!r})"
+        rel = str(target.relative_to(root)).replace("\\", "/")
+        lineno = _member_line(original, coll_name, member)
+        try:
+            target.write_text(mutated, encoding="utf-8")
+            failed = _tests_fail(project_root, feature_id, test_files)
+            if not failed:
+                results.append(MutantResult(
+                    rule, rel, lineno, "survived",
+                    f"{member!r} 를 목록에서 지웠는데 테스트가 전부 통과했다 "
+                    f"— 목록을 순회하는 테스트는 **덜 돌 뿐**이다",
+                ))
+            elif not _typechecks(project_root):
+                # **폐기가 아니라 '타입이 잡음'이다** (TS-022).
+                #
+                # `drop_member` 는 배열 리터럴을 유지하므로 구문은 **구성상 유효하다.**
+                # 그런데도 tsc 가 실패했다면 그것은 구문 파괴가 아니라 **타입 수준의
+                # 결함 감지**다 — `Record<ProtectedPath, …>` 처럼 목록과 소비처가
+                # 타입으로 묶여 있으면 멤버를 지우는 순간 컴파일이 막힌다.
+                #
+                # 증거 점수의 분자에는 넣지 않는다. 잡은 것은 테스트가 아니라
+                # 컴파일러이고, 게이트가 묻는 것은 **증거의 품질**이다.
+                # 그래도 '폐기'로 묻어버리면 **구조적 보호가 있다는 사실**이 사라진다.
+                results.append(MutantResult(
+                    rule, rel, lineno, "types",
+                    f"테스트가 아니라 **타입 검사**가 잡았다 — {coll_name} 이 "
+                    f"소비처와 타입으로 묶여 있어 멤버를 지우면 컴파일이 막힌다",
+                ))
+            else:
+                results.append(MutantResult(rule, rel, lineno, "killed"))
+        finally:
+            target.write_text(original, encoding="utf-8")
+
     killed = sum(1 for r in results if r.status == "killed")
     survived = sum(1 for r in results if r.status == "survived")
     invalid = sum(1 for r in results if r.status == "invalid")
+    # 타입 검사가 잡은 것 — 증거 점수의 분자에 넣지 않는다 (잡은 것은 테스트가 아니다).
+    # 그래도 **구조적 보호가 있다는 사실**은 따로 센다 (TS-022).
+    by_types = sum(1 for r in results if r.status == "types")
     scored = killed + survived
     return {
         "feature": feature_id,
@@ -252,7 +436,12 @@ def mutate_feature(
         "killed": killed,
         "survived": survived,
         "invalid": invalid,
+        "types": by_types,
         "score": round(killed / scored, 4) if scored else None,
+        # 후보 총수와 실제 시도 수 — 예산 때문에 몇 개를 건너뛰었는지 보이게 한다.
+        # 이것이 없으면 "점수 40%" 가 몇 개 표본에 근거한 수치인지 알 수 없다 (TS-022).
+        "sites": site_total,
+        "attempted": len(results),
     }
 
 
@@ -269,15 +458,26 @@ def format_mutation(report: dict[str, Any]) -> str:
         f"  변이 대상: {', '.join(report['sources'])}",
         "",
         f"  잡음(killed) {report['killed']} / 생존(survived) {report['survived']}"
-        f" / 폐기(invalid) {report['invalid']}",
+        f" / 폐기(invalid) {report['invalid']}"
+        + (f" / 타입이 잡음(types) {report['types']}" if report.get("types") else ""),
     ]
+    # 표본 크기를 함께 출력한다 — 점수만 보면 몇 개에 근거한 수치인지 알 수 없다
+    sites, attempted = report.get("sites"), report.get("attempted")
+    if sites is not None and attempted is not None:
+        skipped = sites - attempted
+        lines.append(
+            f"  표본: 후보 {sites}곳 중 {attempted}곳 시도"
+            + (f" — 예산으로 {skipped}곳 건너뜀 (--max-per-file 로 늘릴 수 있다)"
+               if skipped > 0 else " (전수)")
+        )
     if report["score"] is not None:
         lines.append(f"  돌연변이 점수: {report['score'] * 100:.0f}%  (잡음 / (잡음+생존))")
     else:
         lines.append("  점수 없음 — 유효한 변이를 만들지 못했다")
 
     lines += ["", "  변이별 결과", "  " + "-" * 64]
-    marks = {"killed": "잡음  ", "survived": "생존  ", "invalid": "폐기  "}
+    marks = {"killed": "잡음  ", "survived": "생존  ", "invalid": "폐기  ",
+             "types": "타입잡음"}
     for r in report["mutants"]:
         lines.append(f"  {marks.get(r.status, r.status)} {r.file}:{r.line}  {r.rule}")
         if r.detail:

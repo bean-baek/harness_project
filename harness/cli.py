@@ -301,6 +301,12 @@ def cmd_audit(args) -> int:
     return 1 if bad else 0
 
 
+#: 도움말에 표시할 기본값 (harness.mutate 를 지연 임포트하므로 값만 복제한다).
+#: 어긋나면 repro_ts022 가 잡는다.
+MUT_PER_FILE_DEFAULT = 3
+MUT_COLLECTION_DEFAULT = 4
+
+
 def cmd_mutate(args) -> int:
     """증거가 실제로 무는지 돌연변이로 측정한다 (느리다 — 게이트가 아니다)."""
     from harness.mutate import format_mutation, mutate_feature
@@ -309,7 +315,12 @@ def cmd_mutate(args) -> int:
     if find_index(features, args.feature_id) < 0:
         print(f"[오류] 기능 ID '{args.feature_id}' 를 찾을 수 없습니다.")
         return 2
-    report = mutate_feature(args.project, args.feature_id, max_files=args.max_files)
+    report = mutate_feature(
+        args.project, args.feature_id,
+        max_files=args.max_files,
+        max_per_file=args.max_per_file,
+        max_collection=args.max_collection,
+    )
     print(format_mutation(report))
     if "error" in report:
         return 2
@@ -504,6 +515,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("feature_id")
     p.add_argument("--max-files", type=int, default=2, dest="max_files",
                    help="변이 대상 파일 수 (기본 2)")
+    # 예산을 늘리면 표본이 넓어진다. 후보가 예산을 넘으면 **고르게 퍼뜨려** 고르므로
+    # 작은 예산에서도 파일 앞머리만 검사되지 않는다 (TS-022).
+    p.add_argument("--max-per-file", type=int, default=None, dest="max_per_file",
+                   help=f"파일당 줄 변이 수 (기본 {MUT_PER_FILE_DEFAULT})")
+    p.add_argument("--max-collection", type=int, default=None, dest="max_collection",
+                   help=f"컬렉션 멤버 제거 변이 수 (기본 {MUT_COLLECTION_DEFAULT})")
     p.set_defaults(func=cmd_mutate)
 
     p = sub.add_parser("init", help="프로젝트를 검수해 .harness.json 생성")
