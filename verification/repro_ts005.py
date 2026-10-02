@@ -8,11 +8,13 @@ LLM 쿼터 초과(429 RESOURCE_EXHAUSTED)가
   4) night_shift 가 attempt 를 소모하지 않고 런을 중단하는지
 확인한다. LLM 은 전부 스텁 — 실제 API 호출 없음.
 """
-import io
 import sys
 from pathlib import Path
 
-PROJECT = Path(__file__).resolve().parent
+# 재현 스크립트는 verification/ 에 있으므로 루트는 한 단계 위다.
+# 주의: 일부 검증이 "web_target" 을 **상대 경로**로 쓰므로 반드시
+# 레포 루트에서 실행해야 한다 (`python verification/repro_tsXXX.py`).
+PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT))
 # night_shift 가 임포트 시점에 sys.stdout 을 UTF-8 로 감싼다 — 먼저 임포트해 중복 래핑을 피한다.
 import night_shift  # noqa: E402

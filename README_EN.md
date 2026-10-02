@@ -17,7 +17,7 @@ trustworthy while nobody is watching.** This repository implements the apparatus
 | | |
 |---|---|
 | **Is the deliverable** | `harness/` — the operating layer that runs, verifies, measures, and halts the agent |
-| **Is the deliverable** | `troubleshooting/` — **18 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
+| **Is the deliverable** | `troubleshooting/` — **19 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
 | **Is NOT the deliverable** | `web_target/` — a todo app. The **test subject** and benchmark task for the harness |
 
 The 75 features in `web_target` (`features.json`) are not the goal; they are the
@@ -36,6 +36,29 @@ one question: **"does this failure teach the harness anything?"** (§8)
    are not the feature's fault, so they consume no attempt and abort the whole run (TS-005).
 5. **Irreversible actions require a human.** Tools carry three permission tiers, and
    `IRREVERSIBLE` halts the graph to wait for approval.
+
+### Directory layout
+
+```
+harness/              the operating layer — gate, measurement, runner, inspection (the deliverable)
+  verify.py           evidence gate policy (single owner)
+  runner.py           everything tied to an ecosystem — jest, vitest, pytest
+  project.py          .harness.json declaration + project inspection
+  inspect.py          objective metric (invariant) extraction
+  deadcode.py         self-audit — dead config, orphan code
+  tags.py metrics.py mutate.py cli.py
+  graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
+  nodes/agents.py     the 5 agent nodes (paid path)
+verification/         441 regression checks — one script per failure mode
+troubleshooting/      19 failure-mode records + evidence/ primary sources
+web_target/           the test-subject todo app (not the deliverable)
+.harness_memory/      Reflexion primary data — cannot be regenerated, kept
+docs/ scripts/ .claude/skills/harness/
+config.py exit_codes.py main.py night_shift.py
+```
+
+Run the regression checks **from the repo root** — some of them reference `web_target`
+by relative path ([verification/README.md](verification/README.md)).
 
 ---
 
@@ -96,6 +119,7 @@ python -m harness.cli mutate F-005   # measure whether the evidence actually bit
 python -m harness.cli report         # discrimination + gate-verdict aggregation + run log
 python -m harness.cli init           # inspect the project → generate .harness.json (TS-017)
 python -m harness.cli inspect        # extract objective metrics, separate what needs human intent
+python -m harness.cli deadcode       # self-audit — dead config, orphan code (TS-019)
 ```
 
 `verify` / `mark` / `unmark` append a record to `harness_runtime.log` on every verdict
@@ -422,7 +446,6 @@ Grounds and methodology: [docs/comparison-revfactory.md](docs/comparison-revfact
 | `HARNESS_EVIDENCE_LEVEL` | `feature` | `suite` / `feature` / `step` |
 | `HARNESS_PERSISTENT` / `DATABASE_URL` | `false` / (none) | checkpointer persistence (see note) |
 | `HARNESS_MEMORY_DIR` | `./.harness_memory` | episodic memory path |
-| `DEV_PORT` / `API_PORT` | 5173 / 3001 | dev server ports |
 
 > **Persistence note**: without `langgraph-checkpoint-postgres` installed,
 > `HARNESS_PERSISTENT=true` falls back to `InMemorySaver` with a warning (no cross-process
@@ -458,7 +481,7 @@ match the app would be the worst choice**, so the signal was preserved instead (
 | `web_target/features.json` | Yes | 75 features + `passes` + `verification` evidence — **the source of truth** |
 | `features.draft.json` | No | output of `inspect --write-draft`. **Not a spec** — a human must move it over |
 | `web_target/src/routes.ts` | Yes | single source of truth for the protected-path list (shared by app and tests, TS-013) |
-| `troubleshooting/` | Yes | 18 failure modes + `evidence/` primary sources |
+| `troubleshooting/` | Yes | 19 failure modes + `evidence/` primary sources |
 | `.harness_memory/<session>/` | Yes | Reflexion records. Injected when re-run with the same session ID |
 | `.claude/skills/harness/` | Yes | the tokenless-mode procedure |
 | `harness_runtime.log` | No | night-shift output. Input data for `cli report` |
@@ -471,7 +494,8 @@ match the app would be the worst choice**, so the signal was preserved instead (
 6/75 features passing — all with recorded evidence
 jest 51/51 (7 suites) · E2E 14 passed / 4 deferred / 0 failed
 lint exit 0 · build exit 0 · 0 tsc errors
-404 harness regression checks (repro_ts005/006/008/009/010/015/016/017/018) all passing
+441 harness regression checks (verification/repro_ts005/…/019) all passing
+Self-audit: 0 dead config · 0 orphan code · 0 unused imports
 78 paid-path smoke checks — the LangGraph graph driven end to end with zero tokens
 Measured on another project: main_portfolio (Vite, 0 tests) inspected cleanly — 3 blockers reported accurately
 ```
@@ -490,15 +514,16 @@ At `step` level only F-005 and F-018 pass.
 ### Regression verification
 
 ```bash
-python repro_ts005.py   # LLM error classification, backoff, exit codes   37/37
-python repro_ts006.py   # evidence gate policy                           32/32
-python repro_ts008.py   # spec-to-test linkage verdicts                   49/49
-python repro_ts009.py   # measurement layer + terminal status recording   36/36
-python repro_ts010.py   # tokenless mode dependency isolation            22/22
-python repro_ts015.py   # run records + gate verdict aggregation          29/29
-python repro_ts016.py   # coverage gate + mutation measurement            31/31
-python repro_ts017.py   # config externalization, runner abstraction, inspect   90/90
-python repro_ts018.py   # paid-path smoke (LangGraph, zero tokens)        78/78
+python verification/repro_ts005.py   # LLM error classification, backoff, exit codes   37/37
+python verification/repro_ts006.py   # evidence gate policy                           32/32
+python verification/repro_ts008.py   # spec-to-test linkage verdicts                   49/49
+python verification/repro_ts009.py   # measurement layer + terminal status recording   36/36
+python verification/repro_ts010.py   # tokenless mode dependency isolation            22/22
+python verification/repro_ts015.py   # run records + gate verdict aggregation          29/29
+python verification/repro_ts016.py   # coverage gate + mutation measurement            31/31
+python verification/repro_ts017.py   # config externalization, runner abstraction, inspect   90/90
+python verification/repro_ts018.py   # paid-path smoke (LangGraph, zero tokens)        78/78
+python verification/repro_ts019.py   # dead-config / orphan-code recurrence guard      37/37
 
 cd web_target
 npm run lint       # exit 0
@@ -528,6 +553,9 @@ E2E (`*.spec.ts`) is **not counted by the gate** — the gate runs jest only.
   requirements blocked vacuous tests (TS-016), but a test that executes code while asserting
   nothing shows up only in mutation measurement, and that is not a gate (too slow).
 - Measured coverage falls short of the 80% threshold.
+- **`cli deadcode` is static analysis.** It cannot see `eval` or `importlib` dynamic
+  references. This repo was confirmed to have none, which is why CI uses it as a block —
+  in other projects, use it as a report only.
 - **Reflexion's prompt quality is unverified.** TS-018 only pinned down "the error signal reaches
   the prompt"; whether the reflection is *useful* requires a run against a real model
   (see the F-004 evidence).
@@ -550,7 +578,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `repro_ts005/…/017/018` (404 checks) + `cli tags` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/019` (441 checks) + `cli deadcode` + `cli tags` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -578,6 +606,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-016 | A test that executes nothing counted as perfect evidence — coverage gate and mutation measurement |
 | TS-017 | The harness was bolted to one repo — config externalization, runner abstraction, project inspection |
 | TS-018 | The paid path went unverified for six months — a smoke test found two real bugs immediately |
+| TS-019 | Three settings the docs advertised did nothing — dead config's second recurrence, plus 21 orphans |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

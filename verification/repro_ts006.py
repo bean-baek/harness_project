@@ -14,13 +14,15 @@ update_features(passes=True) 의 증거 게이트 **정책**을 검증한다.
 태그 판정·단계 커버리지·게이트 정책은 **실제 코드가 돌아간다**.
 태그 매칭 자체의 단위 검증은 repro_ts008.py 가 담당한다.
 """
-import io
 import json
 import sys
 import tempfile
 from pathlib import Path
 
-PROJECT = Path(__file__).resolve().parent
+# 재현 스크립트는 verification/ 에 있으므로 루트는 한 단계 위다.
+# 주의: 일부 검증이 "web_target" 을 **상대 경로**로 쓰므로 반드시
+# 레포 루트에서 실행해야 한다 (`python verification/repro_tsXXX.py`).
+PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT))
 
 import config

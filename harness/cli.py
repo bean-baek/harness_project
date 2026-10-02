@@ -383,6 +383,20 @@ def cmd_inspect(args) -> int:
     return 1 if any(c.auto and c.verdict == "violated" for c in report.checks) else 0
 
 
+def cmd_deadcode(args) -> int:
+    """하네스 자신을 감사한다 — 죽은 설정·고아 코드·미사용 임포트 (TS-019).
+
+    종료 코드: 0 깨끗 / 1 발견됨. 차단 근거가 서는 이유: 세 검사 모두
+    **참조가 0건**이라는 사실 판정이고 임계값이 없다.
+    """
+    from harness.deadcode import audit, format_audit
+
+    root = Path(args.harness_root).resolve()
+    findings = audit(root)
+    print(format_audit(findings, root))
+    return 1 if findings else 0
+
+
 def cmd_tags(args) -> int:
     """증거 태그가 옳은 기능을 가리키는지 검사한다 (보고만, 차단 없음)."""
     from harness.tags import format_tag_report, lint_tags, scan_tags
@@ -485,6 +499,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="features.draft.json 에 명세 초안을 쓴다 (명세 아님 — 검토 필요)")
     p.add_argument("--force", action="store_true", help="기존 초안을 덮어쓴다")
     p.set_defaults(func=cmd_inspect)
+
+    p = sub.add_parser("deadcode", help="하네스 자기 감사 — 죽은 설정·고아 코드·미사용 임포트")
+    p.add_argument("--harness-root", default=".", dest="harness_root")
+    p.set_defaults(func=cmd_deadcode)
 
     p = sub.add_parser("tags", parents=[common], help="증거 태그가 옳은 기능을 가리키는지 검사")
     p.set_defaults(func=cmd_tags)

@@ -34,7 +34,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import config
 from harness.verify import (
     coverage_for_feature,
     feature_name_pattern,

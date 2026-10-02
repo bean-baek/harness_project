@@ -14,14 +14,16 @@ TS-008 검증 스크립트
 
 jest 실행은 전부 스텁/가짜 JSON. 실제 API·네트워크 접근 없음.
 """
-import io
 import json
 import sys
 import tempfile
 import time
 from pathlib import Path
 
-PROJECT = Path(__file__).resolve().parent
+# 재현 스크립트는 verification/ 에 있으므로 루트는 한 단계 위다.
+# 주의: 일부 검증이 "web_target" 을 **상대 경로**로 쓰므로 반드시
+# 레포 루트에서 실행해야 한다 (`python verification/repro_tsXXX.py`).
+PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT))
 
 from harness import verify

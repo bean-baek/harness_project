@@ -15,6 +15,7 @@ import re
 
 from langchain_core.messages import AIMessage, ToolMessage
 
+import config
 from harness.state import HarnessState
 
 
@@ -163,15 +164,20 @@ def route_after_act(state: HarnessState) -> str:
 def route_after_evaluate(state: HarnessState) -> str:
     """
     Evaluator 노드 이후 분기:
-      - PASS (75점 이상) → 'done' (세션 핸드오프 후 완료)
-      - FAIL             → 'reflect' (Reflexion 루프)
+      - PASS (config.EVAL_PASS_THRESHOLD 이상) → 'done' (세션 핸드오프 후 완료)
+      - FAIL                                   → 'reflect' (Reflexion 루프)
+
+    임계값을 하드코딩하지 않는 이유 (TS-019): 여기에 `75` 가 박혀 있었고
+    `config.EVAL_PASS_THRESHOLD`(= `HARNESS_EVAL_THRESHOLD`)는 **어디서도 읽히지
+    않았다.** README 는 그 환경변수를 "Evaluator 합격선"으로 광고하고 있었다 —
+    설정을 바꿔도 아무 일이 없는 TS-007 과 똑같은 구조다.
     """
     verdict = state.get("evaluation_verdict", "FAIL")
     score   = state.get("evaluation_score", 0)
     iteration = state.get("iteration", 0)
     max_retry = state.get("max_retry", 5)
 
-    if verdict == "PASS" and score >= 75:
+    if verdict == "PASS" and score >= config.EVAL_PASS_THRESHOLD:
         return "done"
 
     # 재시도 한도 초과
@@ -215,14 +221,3 @@ def _is_irreversible(tool_name: str) -> bool:
     """도구 이름이 IRREVERSIBLE 계층인지 확인한다."""
     from harness.tools import TOOL_REGISTRY
     return TOOL_REGISTRY.get(tool_name, "STATEFUL") == "IRREVERSIBLE"
-
-
-def all_features_done(project_root: str) -> bool:
-    """features.json의 모든 항목이 passes: true인지 확인한다."""
-    import json
-    import os
-    path = os.path.join(project_root, "features.json")
-    if not os.path.exists(path):
-        return False
-    features = json.loads(open(path, encoding="utf-8").read())
-    return all(f.get("passes", False) for f in features)

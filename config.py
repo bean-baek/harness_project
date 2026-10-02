@@ -20,7 +20,6 @@ except ImportError:                     # pragma: no cover
 
 # ── 경로 ─────────────────────────────────────────────────────────────────────
 BASE_DIR            = Path(__file__).resolve().parent
-WEB_TARGET_DIR      = BASE_DIR / "web_target"
 MEMORY_DIR          = BASE_DIR / ".harness_memory"
 TROUBLESHOOTING_DIR = BASE_DIR / "troubleshooting"
 
@@ -37,8 +36,6 @@ LLM_BACKOFF_MAX_SEC  = float(os.environ.get("HARNESS_LLM_BACKOFF_MAX", "60"))
 
 # ── 하네스 실행 설정 ──────────────────────────────────────────────────────────
 MAX_RETRY         = int(os.environ.get("HARNESS_MAX_RETRY", "5"))
-MAX_SESSIONS      = int(os.environ.get("HARNESS_MAX_SESSIONS", "50"))
-CONTEXT_THRESHOLD = int(os.environ.get("HARNESS_CONTEXT_THRESHOLD", "150_000"))
 
 # ── 평가 기준 (P-04) ──────────────────────────────────────────────────────────
 EVAL_PASS_THRESHOLD = int(os.environ.get("HARNESS_EVAL_THRESHOLD", "75"))
@@ -80,12 +77,6 @@ TOOL_TIMEOUTS = {
 # ── 체크포인터 ────────────────────────────────────────────────────────────────
 USE_PERSISTENT_MEMORY = os.environ.get("HARNESS_PERSISTENT", "false").lower() == "true"
 DATABASE_URL          = os.environ.get("DATABASE_URL", "")
-
-# ── 개발 서버 ─────────────────────────────────────────────────────────────────
-DEV_PORT  = int(os.environ.get("DEV_PORT", "5173"))
-API_PORT  = int(os.environ.get("API_PORT", "3001"))
-DEV_URL   = f"http://localhost:{DEV_PORT}"
-API_URL   = f"http://localhost:{API_PORT}"
 
 # ── 배포 승인 토큰 (IRREVERSIBLE 도구용) ─────────────────────────────────────
 DEPLOY_APPROVAL_TOKEN = os.environ.get("DEPLOY_APPROVAL_TOKEN", "")

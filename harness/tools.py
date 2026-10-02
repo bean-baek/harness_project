@@ -14,16 +14,15 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
 from langchain_core.tools import tool
 
 import config
-from harness.verify import apply_flag, run_jest, verify_feature
+from harness.verify import apply_flag, run_jest
 
 
 # ── 도구 권한 계층 상수 ──────────────────────────────────────────────────────
@@ -544,16 +543,6 @@ CODER_TOOLS = [
     read_trouble,
 ]
 
-# Evaluator 에이전트에게 허용되는 도구 (READ_ONLY + 테스트 실행)
-EVALUATOR_TOOLS = [
-    read_file,
-    list_directory,
-    run_tests,
-    bash_command,  # Lighthouse, ESLint 실행용
-    list_troubles,
-    read_trouble,
-]
-
 # Initializer 에이전트에게 허용되는 도구
 INITIALIZER_TOOLS = [
     write_file,
@@ -570,11 +559,4 @@ ORCHESTRATOR_TOOLS = [
     read_progress,
     list_troubles,
     read_trouble,
-]
-
-# Reflector 에이전트 — 실패 분석 후 장기 기억화
-REFLECTOR_TOOLS = [
-    list_troubles,
-    read_trouble,
-    log_trouble,
 ]

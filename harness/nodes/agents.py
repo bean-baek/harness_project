@@ -49,7 +49,7 @@ from harness.tools import (
     INITIALIZER_TOOLS,
     ORCHESTRATOR_TOOLS,
 )
-from harness.memory import load_episodic_memory, save_episodic_memory
+from harness.memory import save_episodic_memory
 from harness.llm_errors import invoke_llm
 from harness.state import RESET_SENTINEL
 import config
@@ -65,7 +65,7 @@ def _get_llm(model: str = config.LLM_MODEL) -> ChatGoogleGenerativeAI:
     """
     return ChatGoogleGenerativeAI(
         model=model,
-        max_tokens=4096,
+        max_tokens=config.LLM_MAX_TOKENS,
         google_api_key=config.GOOGLE_API_KEY,
         timeout=120,        # 단일 호출 최대 2분
         max_retries=2,      # 일시 오류 시 최대 2회 재시도

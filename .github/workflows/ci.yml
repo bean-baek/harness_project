@@ -4,7 +4,7 @@
 # (TS-001 루트 features.json / init.sh 의 PROJECT_ROOT / TS-006 의 run_tests / TS-012 의 3건).
 # CI 는 그 패턴에 대한 기계적 처방이다 — 선언한 모든 명령을 매 푸시마다 실제로 돌린다.
 #
-# 토큰 없는 모드이므로 **API 키 없이 전부 돈다**: 하네스 검증 404건은 LLM 을 스텁으로
+# 토큰 없는 모드이므로 **API 키 없이 전부 돈다**: 하네스 검증 441건은 LLM 을 스텁으로
 # 대체하고, 증거 게이트는 jest 만 쓴다. 비용 0.
 
 name: CI
@@ -43,51 +43,61 @@ jobs:
 
       # 검증 스크립트는 LLM·네트워크를 쓰지 않는다. 키를 비워 그 사실을 강제한다.
       - name: TS-005 — LLM 오류 분류·백오프·종료 코드
-        run: python repro_ts005.py
+        run: python verification/repro_ts005.py
         env:
           GOOGLE_API_KEY: ""
 
       - name: TS-006 — 증거 게이트 정책
-        run: python repro_ts006.py
+        run: python verification/repro_ts006.py
         env:
           GOOGLE_API_KEY: ""
 
       - name: TS-008 — 명세-테스트 연결 판정
-        run: python repro_ts008.py
+        run: python verification/repro_ts008.py
         env:
           GOOGLE_API_KEY: ""
 
       - name: TS-009 — 측정 계층 + 종료 상태 기록
-        run: python repro_ts009.py
+        run: python verification/repro_ts009.py
         env:
           GOOGLE_API_KEY: ""
 
       - name: TS-010 — 토큰 없는 모드 의존성 독립
-        run: python repro_ts010.py
+        run: python verification/repro_ts010.py
         env:
           GOOGLE_API_KEY: ""
 
       - name: TS-015 — 실행 기록 + 게이트 판정 집계
-        run: python repro_ts015.py
+        run: python verification/repro_ts015.py
         env:
           GOOGLE_API_KEY: ""
 
       - name: TS-016 — 증거 커버리지 게이트 + 돌연변이 측정
-        run: python repro_ts016.py
+        run: python verification/repro_ts016.py
         env:
           GOOGLE_API_KEY: ""
 
       - name: TS-017 — 설정 외부화·런너 추상화·프로젝트 검수
-        run: python repro_ts017.py
+        run: python verification/repro_ts017.py
         env:
           GOOGLE_API_KEY: ""
 
       # 유료 경로 스모크 — LLM 을 스텁으로 바꿔 LangGraph 그래프를 끝까지 돌린다.
       # 토큰 0. 이것이 없으면 유료 경로가 리팩터 아래서 조용히 깨진다 (TS-018).
       - name: TS-018 — 유료 경로 스모크 (LangGraph, 토큰 0)
-        run: python repro_ts018.py
+        run: python verification/repro_ts018.py
         env:
           GOOGLE_API_KEY: ""
+
+      - name: TS-019 — 죽은 설정·고아 코드 재발 방지
+        run: python verification/repro_ts019.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      # 세 검사 모두 '참조 0건'이라는 사실 판정이고 임계값이 없으므로 차단 근거가 선다.
+      # 이 레포에 eval·importlib 동적 참조가 없음을 확인했다 (TS-019).
+      - name: 하네스 자기 감사 (죽은 설정·고아 코드·미사용 임포트)
+        run: python -m harness.cli deadcode
 
       - name: 증거 태그 검사 (존재하지 않는 ID 는 실패)
         run: python -m harness.cli tags

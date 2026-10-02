@@ -22,3 +22,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-016](TS-016-vacuous-evidence-passes-the-gate.md) | resolved | high | 아무것도 실행하지 않는 테스트가 완벽한 증거로 계수됐다 — 커버리지 게이트와 돌연변이 측정 | `harness/verify.py` |
 | [TS-017](TS-017-harness-bound-to-one-repo.md) | resolved | high | 하네스가 레포 한 곳에만 붙어 있었다 — 설정 외부화·런너 추상화·프로젝트 검수 | `harness/project.py`, `harness/runner.py`, `harness/inspect.py` |
 | [TS-018](TS-018-paid-path-unverified-for-six-months.md) | resolved | high | 유료 경로가 6개월간 검증 없이 방치됐다 — 스모크 테스트가 즉시 버그 2건을 찾아냈다 | `harness/router.py`, `harness/nodes/agents.py` |
+| [TS-019](TS-019-dead-config-and-orphan-code.md) | resolved | medium | 문서가 광고하는 설정 3개가 아무 일도 하지 않았다 — 죽은 설정의 두 번째 재발 + 고아 코드 21건 | `harness/deadcode.py`, `harness/router.py` |

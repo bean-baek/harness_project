@@ -35,11 +35,6 @@ from typing import Any, Iterable
 UNIT_SUFFIXES = (".test.ts", ".test.tsx")
 E2E_SUFFIXES = (".spec.ts", ".spec.tsx")
 
-#: 기능 ID 포착 기본값. 단계 태그(F-004.5)도 ID 로 인정한다.
-#: 프로젝트의 ID 형식은 `.harness.json` 의 id_pattern 이 정한다.
-_ID_RE = re.compile(r"(?<![\w-])(F-\d{3})(?:[.#-](\d+))?")
-
-
 def id_regex(id_pattern: str) -> re.Pattern[str]:
     """프로젝트 ID 형식에서 태그 포착 정규식을 만든다.
 
@@ -59,10 +54,6 @@ _SUITE_RE_BY_RUNNER: dict[str, re.Pattern[str]] = {}
 #: 리터럴을 쓰면 `F-004: 설명` 과 `설명 (F-020)` 둘 다 처리된다.
 _LITERAL_RE = re.compile(r"""(['"`])((?:(?!\1).){3,160})\1""")
 
-#: describe 블록 판별 — 이 라벨만이 "이 스위트가 이 기능을 검증한다"고 주장한다.
-#: 개별 test/it 이름은 **단계**를 서술하므로 기능 설명과 겹치지 않는 것이 정상이다
-#: (전부 평가했더니 14건 중 11건이 오탐이었다).
-_DESCRIBE_RE = re.compile(r"(?:^|[\s.;=(])(?:test\.)?describe(?:\.\w+)?\s*\(")
 
 #: 라벨 꼬리 정리
 _TRAIL_RE = re.compile(r"[\s,;:.·\-]+$")

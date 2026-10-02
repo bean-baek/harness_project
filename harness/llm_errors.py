@@ -151,7 +151,7 @@ class LLMUnavailableError(RuntimeError):
         if self.kind == "auth":
             return (
                 "GOOGLE_API_KEY 가 유효하지 않거나 권한이 없습니다. "
-                ".env 의 키를 확인하고 `python repro_bug.py` 로 단독 검증하십시오."
+                ".env 의 키를 확인하고 `python verification/repro_bug.py` 로 단독 검증하십시오."
             )
         if self.kind == "rate_limited":
             return (
