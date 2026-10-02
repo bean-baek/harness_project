@@ -383,6 +383,26 @@ def cmd_inspect(args) -> int:
     return 1 if any(c.auto and c.verdict == "violated" for c in report.checks) else 0
 
 
+def cmd_independence(args) -> int:
+    """증거가 검증 대상의 구조를 자기가 공급하는지 검사한다 (TS-020).
+
+    종료 코드는 항상 0 — **보고만 한다.** `tags` 와 같은 자리다.
+    통과/탈락으로 가르려면 "채널 몇 개면 충분한가"를 정해야 하고, 그것은
+    근거 없는 상수가 된다 (`EVAL_WEIGHTS` 가 그 실수였다). 수치를 먼저 쌓는다.
+    """
+    from harness.independence import (
+        audit_independence,
+        declared_collections,
+        format_independence,
+    )
+
+    features = load_features(args.project)
+    collections = declared_collections(args.project)
+    results = audit_independence(args.project, features)
+    print(format_independence(results, collections))
+    return 0
+
+
 def cmd_deadcode(args) -> int:
     """하네스 자신을 감사한다 — 죽은 설정·고아 코드·미사용 임포트 (TS-019).
 
@@ -499,6 +519,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="features.draft.json 에 명세 초안을 쓴다 (명세 아님 — 검토 필요)")
     p.add_argument("--force", action="store_true", help="기존 초안을 덮어쓴다")
     p.set_defaults(func=cmd_inspect)
+
+    p = sub.add_parser("independence", parents=[common],
+                       help="증거 독립성 — 테스트가 검증 대상 구조를 자기가 공급하는지 (보고만)")
+    p.set_defaults(func=cmd_independence)
 
     p = sub.add_parser("deadcode", help="하네스 자기 감사 — 죽은 설정·고아 코드·미사용 임포트")
     p.add_argument("--harness-root", default=".", dest="harness_root")

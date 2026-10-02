@@ -19,7 +19,8 @@ python verification/repro_ts005.py
 | `repro_ts017.py` | 설정 외부화·런너 추상화·프로젝트 검수 | 90 |
 | `repro_ts018.py` | 유료 경로 스모크 (LangGraph, 토큰 0) | 78 |
 | `repro_ts019.py` | 죽은 설정·고아 코드 재발 방지 | 37 |
-| **합계** | | **441** |
+| `repro_ts020.py` | 증거 독립성 (자급 판정·채널 수) | 50 |
+| **합계** | | **491** |
 
 `repro_bug.py` 는 회귀 검증이 아니다 — Gemini API 키가 유효한지 단독으로 확인하는
 도구이며 **실제로 API 를 호출한다**(유료). `llm_errors.py` 의 인증 실패 안내가

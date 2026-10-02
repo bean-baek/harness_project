@@ -23,3 +23,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-017](TS-017-harness-bound-to-one-repo.md) | resolved | high | 하네스가 레포 한 곳에만 붙어 있었다 — 설정 외부화·런너 추상화·프로젝트 검수 | `harness/project.py`, `harness/runner.py`, `harness/inspect.py` |
 | [TS-018](TS-018-paid-path-unverified-for-six-months.md) | resolved | high | 유료 경로가 6개월간 검증 없이 방치됐다 — 스모크 테스트가 즉시 버그 2건을 찾아냈다 | `harness/router.py`, `harness/nodes/agents.py` |
 | [TS-019](TS-019-dead-config-and-orphan-code.md) | resolved | medium | 문서가 광고하는 설정 3개가 아무 일도 하지 않았다 — 죽은 설정의 두 번째 재발 + 고아 코드 21건 | `harness/deadcode.py`, `harness/router.py` |
+| [TS-020](TS-020-evidence-independence.md) | resolved | high | 증거 사다리의 빈 칸은 깊이가 아니라 독립성이었다 — TS-013 을 정책으로 일반화 | `harness/independence.py` |

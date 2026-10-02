@@ -17,7 +17,7 @@ trustworthy while nobody is watching.** This repository implements the apparatus
 | | |
 |---|---|
 | **Is the deliverable** | `harness/` — the operating layer that runs, verifies, measures, and halts the agent |
-| **Is the deliverable** | `troubleshooting/` — **19 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
+| **Is the deliverable** | `troubleshooting/` — **20 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
 | **Is NOT the deliverable** | `web_target/` — a todo app. The **test subject** and benchmark task for the harness |
 
 The 75 features in `web_target` (`features.json`) are not the goal; they are the
@@ -45,12 +45,13 @@ harness/              the operating layer — gate, measurement, runner, inspect
   runner.py           everything tied to an ecosystem — jest, vitest, pytest
   project.py          .harness.json declaration + project inspection
   inspect.py          objective metric (invariant) extraction
+  independence.py     evidence independence — does a test supply its own structure
   deadcode.py         self-audit — dead config, orphan code
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
   nodes/agents.py     the 5 agent nodes (paid path)
-verification/         441 regression checks — one script per failure mode
-troubleshooting/      19 failure-mode records + evidence/ primary sources
+verification/         491 regression checks — one script per failure mode
+troubleshooting/      20 failure-mode records + evidence/ primary sources
 web_target/           the test-subject todo app (not the deliverable)
 .harness_memory/      Reflexion primary data — cannot be regenerated, kept
 docs/ scripts/ .claude/skills/harness/
@@ -120,6 +121,7 @@ python -m harness.cli report         # discrimination + gate-verdict aggregation
 python -m harness.cli init           # inspect the project → generate .harness.json (TS-017)
 python -m harness.cli inspect        # extract objective metrics, separate what needs human intent
 python -m harness.cli deadcode       # self-audit — dead config, orphan code (TS-019)
+python -m harness.cli independence   # evidence independence — does a test supply its own structure (TS-020)
 ```
 
 `verify` / `mark` / `unmark` append a record to `harness_runtime.log` on every verdict
@@ -140,6 +142,10 @@ conditions hold:
 
 Without #3, `test('F-006: x', () => expect(true).toBe(true))` counts as perfect evidence —
 verified by actually planting it and watching it pass.
+
+The gate does not ask where the evidence *came from* — all three conditions are satisfied
+by a single unit test the implementer wrote. That outer shell is reported by
+`cli independence` (§4.5, TS-020).
 
 **Tag convention** — not a new rule; it is what `LoginForm.test.tsx` was already doing:
 
@@ -322,6 +328,84 @@ This project had already reached the same conclusion from mutation scoring —
 
 ---
 
+### 4.5 Where the evidence came from — independence (TS-020)
+
+```bash
+python -m harness.cli independence
+```
+
+The evidence ladder had stalled after two rungs.
+
+```
+name (TS-008)  →  source executed (TS-016)  →  [empty]
+```
+
+I had assumed the empty rung was mutation. It wasn't. Mutation measures **depth within one
+channel**; what TS-013 exposed was **channel independence**. F-005 was green at jest 51/51
+and passed the gate, yet did nothing in a real browser — because the test **built
+`<Route path="/dashboard">` itself.** If a test supplies the structure it is verifying,
+that structure goes unverified.
+
+TS-013's fix repaired **F-005 alone** via `routes.ts`. The policy never changed.
+This command is that policy.
+
+**It counts two facts — there is no score.**
+
+| Fact | Question |
+|---|---|
+| Self-supply | Does the test **import and iterate** a collection the app declares, or **write its members out**? |
+| Channel count | How many of unit / E2E tag this feature? |
+
+```
+AppRoutes.test.tsx       imports PROTECTED_PATHS → .map    → reads the declaration
+ProtectedRoute.test.tsx  no import + '/', '/dashboard'     → self-supplied
+```
+
+**Severity is split.** The first implementation reported both at the same grade, and they
+turned out to be entirely different things.
+
+| Severity | Condition | Meaning |
+|---|---|---|
+| `enumerated` | 2+ members | the collection was reproduced by hand. Lowers the grade |
+| `hard-coded` | 1 member | an expected-value assertion like `toHaveBeenCalledWith('/profile')`. Recorded as weak coupling only |
+
+The cutoff of 2 is grounded: it is **the minimum that separates "enumerating a set" from
+"naming one element."** It is a count, not a score, and the original literals are printed
+so a human can check.
+
+**The grade combines the two facts without merging them** — "reads the declaration" and
+"two channels cross-check" are different properties.
+
+| Grade | Condition |
+|---|---|
+| `cross-checked` | 2 channels |
+| `single-channel` | 1 channel, no reproduced collection |
+| `self-supplied` | reproduced collection + 1 channel ← **the TS-013 shape** |
+
+**First measurement** (6 passing features):
+
+```
+cross-checked 5 · single-channel 1 · self-supplied 0
+self-supply events: 1 enumerated · 1 hard-coded
+
+[single-channel] F-018   unit 1 / E2E 0  ← nothing cross-checks it
+[cross-checked]  F-005   unit 2 / E2E 1  ← ProtectedRoute.test.tsx enumerates /, /dashboard
+```
+
+The detector found **the exact file TS-013 is about, with nothing hardcoded.**
+
+**It is not a gate.** The exit code is always 0. Self-supply is not itself a defect — unit
+tests building fixtures is normal — the problem is when it is the **only** evidence. Turning
+it into a pass/fail would require deciding "how many channels are enough," and that becomes
+an ungrounded constant like `EVAL_WEIGHTS`. Accumulate the numbers first.
+
+The remaining hole, stated plainly: a test that hand-writes **only one**
+`<Route path="/dashboard">` lands in `hard-coded` and does not lower the grade. Catching it
+would require inspecting the literal's **syntactic position**, which becomes a
+routing-specific heuristic and breaks ecosystem neutrality.
+
+---
+
 ## 5. Paid API mode
 
 ```bash
@@ -481,7 +565,7 @@ match the app would be the worst choice**, so the signal was preserved instead (
 | `web_target/features.json` | Yes | 75 features + `passes` + `verification` evidence — **the source of truth** |
 | `features.draft.json` | No | output of `inspect --write-draft`. **Not a spec** — a human must move it over |
 | `web_target/src/routes.ts` | Yes | single source of truth for the protected-path list (shared by app and tests, TS-013) |
-| `troubleshooting/` | Yes | 19 failure modes + `evidence/` primary sources |
+| `troubleshooting/` | Yes | 20 failure modes + `evidence/` primary sources |
 | `.harness_memory/<session>/` | Yes | Reflexion records. Injected when re-run with the same session ID |
 | `.claude/skills/harness/` | Yes | the tokenless-mode procedure |
 | `harness_runtime.log` | No | night-shift output. Input data for `cli report` |
@@ -494,7 +578,7 @@ match the app would be the worst choice**, so the signal was preserved instead (
 6/75 features passing — all with recorded evidence
 jest 51/51 (7 suites) · E2E 14 passed / 4 deferred / 0 failed
 lint exit 0 · build exit 0 · 0 tsc errors
-441 harness regression checks (verification/repro_ts005/…/019) all passing
+491 harness regression checks (verification/repro_ts005/…/020) all passing
 Self-audit: 0 dead config · 0 orphan code · 0 unused imports
 78 paid-path smoke checks — the LangGraph graph driven end to end with zero tokens
 Measured on another project: main_portfolio (Vite, 0 tests) inspected cleanly — 3 blockers reported accurately
@@ -524,6 +608,7 @@ python verification/repro_ts016.py   # coverage gate + mutation measurement     
 python verification/repro_ts017.py   # config externalization, runner abstraction, inspect   90/90
 python verification/repro_ts018.py   # paid-path smoke (LangGraph, zero tokens)        78/78
 python verification/repro_ts019.py   # dead-config / orphan-code recurrence guard      37/37
+python verification/repro_ts020.py   # evidence independence (self-supply, channels)   50/50
 
 cd web_target
 npm run lint       # exit 0
@@ -578,7 +663,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/019` (441 checks) + `cli deadcode` + `cli tags` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/020` (491 checks) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -607,6 +692,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-017 | The harness was bolted to one repo — config externalization, runner abstraction, project inspection |
 | TS-018 | The paid path went unverified for six months — a smoke test found two real bugs immediately |
 | TS-019 | Three settings the docs advertised did nothing — dead config's second recurrence, plus 21 orphans |
+| TS-020 | The empty rung on the evidence ladder was independence, not depth — TS-013 generalized into policy |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 
