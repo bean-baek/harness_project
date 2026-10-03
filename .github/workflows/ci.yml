@@ -126,13 +126,21 @@ jobs:
         env:
           GOOGLE_API_KEY: ""
 
-      # 699건이 전부 `web_target`(React+TS+jest) 하나만 봤고, 두 번째 프로젝트에 닿는
-      # 순간 결함 5개가 동시에 드러났다 (TS-025). 이 단계가 그 구멍을 기계화한다 —
+      # 모든 회귀 검증이 `web_target`(React+TS+jest) 하나만 봤고, 두 번째 프로젝트에
+      # 닿는 순간 결함 5개가 동시에 드러났다 (TS-025). 이 단계가 그 구멍을 기계화한다 —
       # `verification/fixtures/` 의 vanilla-js(vitest) · pytest-app(pytest) 는
       # 런너·규약·ID 형식·언어·설정 위치가 web_target 과 **모두 다르다.**
       # 런너는 설치하지 않는다(정적 계층만) — 다섯 결함 중 넷이 거기 있었고 비용이 0이다.
       - name: TS-025 — 외부 프로젝트 모양 (vitest · pytest 픽스처)
         run: python verification/repro_ts025.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      # 커버리지가 **파일**만 고르고 **줄**을 고르지 않아, 증거가 지나가지 않는 줄에
+      # 변이를 넣고 그 생존을 증거의 구멍으로 셌다 (TS-026). 음성 대조로 'statement
+      # 범위를 실행된 줄로 쓰면 안 된다'를 고정한다 — TS-022 를 오판으로 이끈 방법이다.
+      - name: TS-026 — 미실행 줄 변이 차단 + 도달률 발표
+        run: python verification/repro_ts026.py
         env:
           GOOGLE_API_KEY: ""
 

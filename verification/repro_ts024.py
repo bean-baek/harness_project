@@ -130,7 +130,9 @@ check("왜 이 파일이 있는지 적는다 (TS-024)", "TS-024" in a, True)
 print("\n[5] README 산문에 살아 있는 수치가 다시 들어오지 않았는가")
 # 이것이 재발 방지의 핵심이다 — 수치를 걷어내도 다음에 또 넣으면 의미가 없다.
 LIVE_PATTERNS = [
-    (r"점수 \*\*?\d+%", "돌연변이 점수"),
+    # `\*\*?` 는 별표를 **최소 1개** 요구해 `점수 33%` (강조 없음)를 놓쳤다 —
+    # README 에 그 형태로 낡은 값이 남아 있었다 (TS-026 에서 발견). `\*{0,2}` 로 고친다.
+    (r"점수 \*{0,2}\d+%", "돌연변이 점수"),
     (r"판별력 \*\*\d+%", "판별력 수치"),
     (r"Discrimination \*\*\d+%", "판별력 수치(영문)"),
     (r"기능 \d+/75", "기능 통과 수"),
@@ -145,7 +147,17 @@ LIVE_PATTERNS = [
     (r"\d+ regression checks \+", "모드 표의 회귀 건수(영문)"),
     (r"all \d+ regression checks", "역사 서술 속 회귀 건수(영문)"),
 ]
-for doc in ("README.md", "README_EN.md"):
+# 두 README 만 보던 것을 **산문이 있는 모든 파일**로 넓혔다 (TS-026 에서 발견).
+# `ci.yml` 의 주석에 "회귀 699건" 을 적었고 이 검사가 보지 않아 통과했다 — 같은
+# 결함이 같은 날 다른 파일에서 재발했다. 산문은 README 에만 있는 것이 아니다.
+SCANNED_DOCS = (
+    "README.md",
+    "README_EN.md",
+    "verification/README.md",
+    ".github/workflows/ci.yml",
+    "troubleshooting/INDEX.md",
+)
+for doc in SCANNED_DOCS:
     text = (PROJECT / doc).read_text(encoding="utf-8")
     found = []
     for pat, label in LIVE_PATTERNS:

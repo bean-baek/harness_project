@@ -64,9 +64,23 @@ class Results:
 
 @dataclass
 class Coverage:
-    """소스 파일별 실행된 statement 수. 테스트 파일 자신은 제외하고 담는다."""
+    """소스 파일별 실행된 statement 수 + **실행된 줄 번호**. 테스트 파일은 제외한다.
+
+    `executed_lines` 가 왜 필요한가 (TS-026):
+      `per_file` 은 개수뿐이라 "이 파일이 17줄 실행됐다"까지만 안다. 돌연변이는
+      **줄 단위로** 결함을 심으므로, 개수만으로 파일을 고르면 그 파일의 미실행
+      줄에 변이가 들어간다. 미실행 줄의 변이는 어떤 테스트도 지나가지 않으므로
+      **반드시 생존**하고, 그 생존이 점수의 분모에 들어가 점수를 낮춘다.
+
+      실측: `LoginForm.tsx` 의 변이 후보 18곳 중 **실행되는 것은 2곳**이었다.
+      나머지 16곳은 넣기만 하면 생존이 보장된 자리였다.
+
+    비어 있으면 "줄 지도를 얻지 못했다"는 뜻이다 — **"실행된 줄이 없다"가 아니다.**
+    호출자가 그 둘을 구분해야 한다 (측정 실패는 통과가 아니다 — TS-016).
+    """
 
     per_file: dict[str, int] = field(default_factory=dict)
+    executed_lines: dict[str, set[int]] = field(default_factory=dict)
 
     def total(self) -> int:
         return sum(self.per_file.values())
@@ -74,6 +88,15 @@ class Coverage:
     def top(self, n: int = 5) -> list[str]:
         ranked = sorted(self.per_file.items(), key=lambda kv: -kv[1])
         return [f"{name} ({count})" for name, count in ranked[:n]]
+
+    def lines_for(self, name: str) -> set[int] | None:
+        """그 파일에서 실행된 줄 번호. 줄 지도가 없으면 `None`.
+
+        `None` 과 `set()` 을 구분한다 — 전자는 '모른다', 후자는 '하나도 실행되지
+        않았다'다. 전자를 후자로 취급하면 측정 실패가 조용히 '변이 대상 없음'이
+        되고, 후자를 전자로 취급하면 미실행 파일에 변이를 넣는다.
+        """
+        return self.executed_lines.get(name)
 
 
 class Runner:
@@ -346,6 +369,10 @@ class _JsRunner(Runner):
                 return None, ("[오류] 커버리지 요약이 생성되지 않았습니다.\n"
                               + (output or "")[-800:])
             data = json.loads(summary.read_text(encoding="utf-8"))
+            # 줄 지도는 **별도 리포터**가 쓴다. 없으면 빈 지도로 둔다 —
+            # 요약이 나왔는데 지도가 없는 것은 측정 실패가 아니다.
+            final = Path(tmp_dir) / "coverage-final.json"
+            line_map = self._executed_lines(final) if final.is_file() else {}
         except (OSError, json.JSONDecodeError) as exc:
             return None, f"[오류] 커버리지 측정 실패: {exc}"
         finally:
@@ -362,7 +389,46 @@ class _JsRunner(Runner):
             if not self._is_source(name):
                 continue
             per_file[name] = per_file.get(name, 0) + covered
-        return Coverage(per_file), ""
+        return Coverage(per_file, line_map), ""
+
+    def _executed_lines(self, final: Path) -> dict[str, set[int]]:
+        """istanbul `coverage-final.json` → 파일명별 실행된 줄 번호 (TS-026).
+
+        **statement 의 시작 줄만 센다.** `start`~`end` 범위를 쓰면 안 된다 — 실측:
+        `LoginForm.tsx` 에서 범위를 쓰면 167줄이 '실행됨'이 되고 미실행 statement
+        54개 중 **48개가 그 안에 먹힌다.** 함수 선언 statement 는 모듈 로드 때
+        실행되면서 호출되지 않은 본문 전체를 범위에 담기 때문이다. 그러면 지금
+        고치려는 결함이 그대로 남는다.
+
+        같은 줄에 실행된 statement 와 미실행 statement 가 함께 있으면 **제외**한다
+        (`hit - miss`). 그 줄을 지나간 경로가 변이 지점을 지났다고 보장할 수 없다.
+        실측에서 이 차이로 줄어드는 변이 후보는 `web_target` 기준 **0개**였다 —
+        비용 없이 보수적인 쪽을 고를 수 있었다.
+        """
+        out: dict[str, set[int]] = {}
+        try:
+            data = json.loads(final.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return out
+        for path, entry in data.items():
+            if not isinstance(entry, dict):
+                continue
+            smap, counts = entry.get("statementMap"), entry.get("s")
+            if not isinstance(smap, dict) or not isinstance(counts, dict):
+                continue
+            hit: set[int] = set()
+            miss: set[int] = set()
+            for sid, loc in smap.items():
+                try:
+                    line = int(loc["start"]["line"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                (hit if counts.get(sid, 0) else miss).add(line)
+            name = Path(path).name
+            if not self._is_source(name):
+                continue
+            out.setdefault(name, set()).update(hit - miss)
+        return out
 
 
 class JestRunner(_JsRunner):
@@ -375,6 +441,9 @@ class JestRunner(_JsRunner):
         return [
             "--coverage",
             "--coverageReporters=json-summary",
+            # `json` 이 `coverage-final.json`(statementMap + s)을 쓴다 — 줄 지도의
+            # 유일한 출처다. `json-summary` 는 개수만 준다 (TS-026).
+            "--coverageReporters=json",
             f"--coverageDirectory={out_dir}",
             "--coverageThreshold={}",
         ]
@@ -397,6 +466,7 @@ class VitestRunner(_JsRunner):
         return [
             "--coverage.enabled=true",
             "--coverage.reporter=json-summary",
+            "--coverage.reporter=json",      # 줄 지도 (TS-026)
             f"--coverage.reportsDirectory={out_dir}",
             "--coverage.thresholds.lines=0",
             "--coverage.thresholds.functions=0",
@@ -514,8 +584,24 @@ class PytestRunner(Runner):
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+        return self._parse_coverage(data), ""
+
+    def _parse_coverage(self, data: dict[str, Any]) -> Coverage:
+        """pytest-cov JSON → `Coverage`. **파싱만** 한다 (서브프로세스 없음).
+
+        런너 실행과 분리하는 이유: pytest 는 이 레포에 설치되어 있지 않고
+        CI 에도 없다. 파싱을 메서드로 떼어 두면 **pytest 없이 파싱 규약을 검증**할
+        수 있다 — TS-025 가 "pytest 실행 경로는 미검증"으로 기록한 공백을 전부
+        메우지는 못하지만, 그중 파싱 부분은 메운다.
+
+        pytest-cov 는 줄 번호를 `executed_lines` 로 **직접** 준다. istanbul 처럼
+        statement 를 줄로 환산할 필요가 없다 (TS-026).
+        """
         per_file: dict[str, int] = {}
+        line_map: dict[str, set[int]] = {}
         for path, entry in (data.get("files") or {}).items():
+            if not isinstance(entry, dict):
+                continue
             covered = int((entry.get("summary") or {}).get("covered_lines", 0))
             if covered <= 0:
                 continue
@@ -523,7 +609,12 @@ class PytestRunner(Runner):
             if not self._is_source(name):
                 continue
             per_file[name] = per_file.get(name, 0) + covered
-        return Coverage(per_file), ""
+            executed = entry.get("executed_lines")
+            if isinstance(executed, list):
+                line_map.setdefault(name, set()).update(
+                    int(n) for n in executed if isinstance(n, int)
+                )
+        return Coverage(per_file, line_map)
 
 
 # ── 선택 ─────────────────────────────────────────────────────────────────────

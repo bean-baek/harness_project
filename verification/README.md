@@ -25,6 +25,8 @@ python verification/repro_ts005.py
 | `repro_ts023.py` | 생존의 의미를 명세로 가린다 |
 | `repro_ts024.py` | 발표된 수치의 드리프트 차단 |
 | `repro_ts025.py` | 외부 프로젝트 모양 — `fixtures/` 의 vitest·pytest 픽스처 |
+| `repro_ts026.py` | 미실행 줄 변이 차단 + 점수와 도달률의 분리 |
+| `repro_ts026.py` | 미실행 줄 변이 차단 + 점수와 도달률의 분리 |
 
 **건수를 적지 않는다 (TS-024).** 스크립트가 바뀌면 이 표의 숫자가 조용히 거짓이 된다 —
 같은 종류의 드리프트로 README 가 같은 측정값을 네 번 다르게 발표한 적이 있다.

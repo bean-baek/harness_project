@@ -75,9 +75,13 @@ def select_spread(candidates: list[Any], budget: int) -> list[Any]:
 
     왜 '첫 번째'를 쓰지 않는가 — 실측:
       이전 구현은 규칙당 `lines[0]` 만 썼다. `LoginForm.tsx` 는 변이 가능 지점이
-      19곳이고 **전부 테스트가 실행하는 줄**인데, 시도되는 것은 3곳뿐이었다.
-      32번 줄이 항상 이기므로 55·56번 줄 — `safeRedirectTarget` 의 오픈 리다이렉트
-      가드, 즉 TS-011 의 수정 — 은 **한 번도 변이 검사를 받지 못했다.**
+      19곳인데 시도되는 것은 3곳뿐이었다. 32번 줄이 항상 이기므로 55·56번 줄 —
+      `safeRedirectTarget` 의 오픈 리다이렉트 가드, 즉 TS-011 의 수정 — 은
+      **한 번도 변이 검사를 받지 못했다.**
+
+      (TS-022 는 이 19곳이 '전부 실행되는 줄'이라고 적었다. **틀린 측정이었다** —
+      실제로는 2곳만 실행된다. TS-026 이 정정했고, 그래서 지금은 `_candidate_lines`
+      가 실행된 줄로 먼저 걸러낸 뒤 이 함수가 퍼뜨린다.)
 
       예산이 한정된 것 자체는 문제가 아니다. 문제는 **항상 같은 곳**을 고르는 것이다.
       무작위가 아니라 등간격을 쓰는 이유: 재현 가능해야 회귀로 고정할 수 있다.
@@ -144,12 +148,34 @@ def _tests_fail(project_root: str, feature_id: str, test_files: list[str]) -> bo
     return code not in (0, None)
 
 
-def _candidate_lines(text: str, pattern: str) -> list[int]:
-    """해당 규칙이 적용 가능한 줄 번호. 주석·import 줄은 제외한다."""
+def _candidate_lines(text: str, pattern: str,
+                     executed: set[int] | None = None) -> list[int]:
+    """해당 규칙이 적용 가능한 줄 번호. 주석·import 줄은 제외한다.
+
+    `executed` 가 주어지면 **그 줄만** 돌려준다 (TS-026). 왜 필요한가 — 실측:
+
+      커버리지는 **파일**을 고르는 데만 쓰였다. 그래서 17줄 실행된 파일의 미실행
+      줄에 변이가 들어갔고, 그 변이는 어떤 테스트도 지나가지 않으므로 **반드시
+      생존**했다. 생존은 점수의 분모에 들어간다 → 점수가 틀린 값으로 낮아진다.
+
+      `LoginForm.tsx` 의 후보 18곳 중 실행되는 것은 **2곳**이었다. 나머지 16곳은
+      '테스트가 약하다'가 아니라 '테스트가 거기까지 가지 않는다'인데, 보고서는
+      전자로 읽히게 적고 있었다 — TS-023 과 같은 종류의 오독을 측정기가 직접
+      만들어내고 있었다.
+
+      이것은 TS-022 의 부작용이기도 하다. 표본을 고르게 퍼뜨린 뒤로 미실행 줄까지
+      균등하게 뽑히기 시작했다. TS-022 는 **닿는 범위**를 넓혔고, 닿아야 할 곳과
+      닿아도 의미 없는 곳을 가르지 않았다.
+
+    `None` 은 '줄 지도를 모른다'이므로 필터하지 않는다 — 측정 실패를 '대상 없음'으로
+    바꾸지 않기 위해서다. 호출자가 그 사실을 보고서에 적는다.
+    """
     hits = []
     for i, line in enumerate(text.split("\n"), 1):
         stripped = line.strip()
         if not stripped or stripped.startswith(("//", "*", "/*", "import ", "export type")):
+            continue
+        if executed is not None and i not in executed:
             continue
         if re.search(pattern, line):
             hits.append(i)
@@ -355,6 +381,13 @@ def mutate_feature(
         if found:
             targets.append(found[0])
 
+    # 실행된 줄 지도 — 변이 지점을 **줄 단위로** 제한하는 데 쓴다 (TS-026).
+    # 파일 단위로만 제한하면 미실행 줄에 변이가 들어가 생존이 보장된다.
+    line_map: dict[str, set[int]] = cov.get("executed_lines") or {}
+    unmapped: list[str] = []            # 줄 지도를 못 얻은 파일 — 보고서에 적는다
+    skipped_unexecuted = 0              # 미실행이라 제외한 변이 지점 **줄 수**
+    reached_lines = 0                   # 증거가 닿는 변이 지점 **줄 수**
+
     results: list[MutantResult] = []
     site_total = 0                      # 후보 총수 — 예산 때문에 건너뛴 수가 보이게 한다
     for target in targets:
@@ -364,6 +397,13 @@ def mutate_feature(
         backup = tempfile.mkdtemp(prefix="harness-mut-")
         backup_file = Path(backup) / target.name
         backup_file.write_text(original, encoding="utf-8")
+
+        # `None` = 줄 지도를 모른다(필터하지 않고 사실을 기록), `set()` = 실행된 줄이
+        # 없다(변이할 자리가 없다). 둘을 섞으면 측정 실패가 '대상 없음'으로 위장된다.
+        executed = line_map.get(target.name)
+        if executed is None:
+            unmapped.append(rel)
+
         # 후보를 **전부 모은 뒤** 고르게 퍼뜨려 고른다 (TS-022).
         # 이전 구현은 규칙 순서대로 돌며 각 규칙의 `lines[0]` 만 썼다 — 그래서
         # 파일 앞머리의 같은 줄만 영원히 검사되고, `LoginForm.tsx` 의 19개 지점 중
@@ -371,8 +411,20 @@ def mutate_feature(
         candidates = [
             (lineno, rule, pattern, replacement)
             for rule, pattern, replacement in MUTATIONS
-            for lineno in _candidate_lines(original, pattern)
+            for lineno in _candidate_lines(original, pattern, executed)
         ]
+        if executed is not None:
+            # 제외된 수를 센다 — '후보가 적다'와 '테스트가 약하다'를 가르는 수치다.
+            # **줄 수로 센다.** 한 줄에 규칙 두 개가 걸리면 변이는 2개지만 지점은
+            # 1곳이다. 도달률을 '변이 수 / 줄 수' 로 섞으면 단위가 다른 값을 나눠
+            # 의미 없는 비율이 나온다 — 실측에서 2개+1줄을 '3곳'으로 적고 있었다.
+            all_sites = {
+                lineno
+                for rule, pattern, replacement in MUTATIONS
+                for lineno in _candidate_lines(original, pattern)
+            }
+            skipped_unexecuted += len(all_sites - executed)
+            reached_lines += len(all_sites & executed)
         candidates.sort(key=lambda c: (c[0], c[1]))
         site_total += len(candidates)
         try:
@@ -502,6 +554,15 @@ def mutate_feature(
         # 이것이 없으면 "점수 40%" 가 몇 개 표본에 근거한 수치인지 알 수 없다 (TS-022).
         "sites": site_total,
         "attempted": len(results),
+        # 미실행이라 제외한 후보 수 (TS-026). 0 이 아니면 **이전 구현이 그만큼의
+        # 생존 보장 변이를 점수에 넣고 있었다**는 뜻이다.
+        "skipped_unexecuted": skipped_unexecuted,
+        # 증거가 닿는 변이 지점 줄 수. `skipped_unexecuted` 와 **같은 단위**다 —
+        # 도달률의 분자/분모가 되므로 변이 수(`attempted`)와 섞으면 안 된다.
+        "reached_lines": reached_lines,
+        # 줄 지도를 못 얻은 파일 — 그 파일은 미실행 줄 필터 없이 변이됐다.
+        # 비어 있지 않으면 점수를 **과소평가일 수 있다**고 읽어야 한다.
+        "unmapped_files": unmapped,
     }
 
 
@@ -531,8 +592,35 @@ def format_mutation(report: dict[str, Any]) -> str:
             + (f" — 예산으로 {skipped}곳 건너뜀 (--max-per-file 로 늘릴 수 있다)"
                if skipped > 0 else " (전수)")
         )
+    # 미실행 줄을 제외했다는 사실을 적는다 (TS-026). 이것을 적지 않으면 "후보 3곳"이
+    # 왜 적은지 알 수 없고, 적은 후보를 '테스트가 약하다'로 오독하게 된다.
+    skipped_unexec = report.get("skipped_unexecuted")
+    if skipped_unexec:
+        lines.append(
+            f"  제외: 미실행 줄 {skipped_unexec}곳 — 증거가 지나가지 않는 자리다. "
+            "넣으면 생존이 보장되므로 점수에 넣지 않는다 (TS-026)"
+        )
+    unmapped = report.get("unmapped_files")
+    if unmapped:
+        lines.append(
+            f"  ⚠ 줄 지도를 얻지 못한 파일 {len(unmapped)}개: {', '.join(unmapped[:3])}"
+            " — 이 파일은 미실행 줄 필터 없이 변이됐다. 점수가 **과소평가일 수 있다**"
+        )
+
     if report["score"] is not None:
         lines.append(f"  돌연변이 점수: {report['score'] * 100:.0f}%  (잡음 / (잡음+생존))")
+        # **점수와 도달률을 함께** 적는다 (TS-026). 점수만 보면 "100%" 가 '테스트가
+        # 완벽하다'로 읽히지만, 그것은 **증거가 지나가는 자리에서만** 참이다.
+        # 미실행 줄을 분모에서 뺀 대가로 점수가 올라가므로, 무엇을 뺐는지 같은 줄에
+        # 적지 않으면 TS-024 의 '발표된 수치가 실제보다 좋아 보이는' 모양이 된다.
+        reached = report.get("reached_lines") or 0
+        reach_total = reached + (skipped_unexec or 0)
+        if skipped_unexec and reach_total:
+            lines.append(
+                f"  도달률: 변이 가능 지점 {reach_total}줄 중 {reached}줄에 증거가 닿는다"
+                f" ({reached / reach_total * 100:.0f}%)"
+                " — 점수는 **닿는 자리에서만** 측정한 값이다"
+            )
     else:
         lines.append("  점수 없음 — 유효한 변이를 만들지 못했다")
 
@@ -562,19 +650,30 @@ def format_mutation(report: dict[str, Any]) -> str:
         if other:
             files = sorted({r.file.rsplit('/', 1)[-1] for r in other})
             lines.append(
-                f"    {len(other)}건은 **스쳐 지나간 파일**({', '.join(files)})에 있다 —"
+                f"    {len(other)}건은 **다른 파일**({', '.join(files)})에 있다 —"
+            )
+            # 이전 문구는 "스쳐 지나간 파일 / 부수적 실행일 뿐 이 기능의 책임이
+            # 아닐 수 있다 / 해당 파일을 소유한 기능의 측정에서 확인하라"였다.
+            # **틀린 조언이다 (TS-026).** 변이 후보를 실행된 줄로 거른 뒤로는
+            # 생존 변이가 놓인 줄은 **이 기능의 증거가 실제로 지나간 줄**이다.
+            # 다른 기능의 측정으로 넘기면 그 기능의 테스트는 그 줄에 닿지 않을 수
+            # 있고, 그러면 아무도 확인하지 않은 채 양쪽에서 책임이 사라진다.
+            # 실제로 TS-023 이 F-005 의 생존 3건을 이 논리로 F-001~003 에 넘겼고,
+            # 그 3건의 실제 원인은 소유권이 아니라 **미실행**이었다.
+            lines.append(
+                "    그 줄도 **이 기능의 증거가 실제로 실행한다**(미실행 줄은 제외됐다)."
             )
             lines.append(
-                "    커버리지가 잡은 부수적 실행일 뿐 이 기능의 책임이 아닐 수 있다."
+                "    즉 소유권은 '단정을 어디에 쓸지'를 말할 뿐, 필요 여부를 말하지 않는다 —"
             )
             lines.append(
-                "    해당 파일을 소유한 기능의 측정에서 다시 확인하는 것이 맞다."
+                "    다른 기능의 측정으로 넘기면 그 테스트는 이 줄에 닿지 않을 수 있다."
             )
         lines += [
             "",
-            "  해석 주의: 점수는 '변이 대상 파일에서 몇 %를 잡았나'이지 "
+            "  해석 주의: 점수는 '증거가 닿는 자리에서 몇 %를 잡았나'이지 "
             "'이 기능의 테스트 품질'이 아니다.",
-            "  변이 대상은 커버리지로 고르므로 다른 기능이 소유한 파일이 섞인다.",
+            "  변이 대상 파일은 커버리지로 고르므로 다른 기능이 소유한 파일이 섞인다.",
         ]
 
     # 명세 범위 밖 생존은 **다른 종류의 신호**다 — 테스트를 고치라는 뜻이 아니다 (TS-023)

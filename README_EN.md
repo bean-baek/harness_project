@@ -721,6 +721,7 @@ python verification/repro_ts022.py   # detection reach (sampling, collection ope
 python verification/repro_ts023.py   # what a surviving mutant means (spec-aware)
 python verification/repro_ts024.py   # blocks drift in published numbers
 python verification/repro_ts025.py   # foreign project shapes (vitest / pytest fixtures)
+python verification/repro_ts026.py   # no mutation on unexecuted lines + reach reporting
 
 cd web_target
 npm run lint       # exit 0
@@ -788,7 +789,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/025` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/026` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -823,6 +824,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-023 | I read a surviving mutant as "the test is weak" and almost fixed it — the spec never required it |
 | TS-024 | The same measurement was published four different ways — a number in prose goes silently false when the measuring code changes |
 | TS-025 | Every verification looked at one subject — touching a second project surfaced five defects at once |
+| TS-026 | Faults were planted on lines the evidence never reaches, and their survival was counted as an evidence gap — all four published scores were wrong |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

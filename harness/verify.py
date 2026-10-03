@@ -194,6 +194,10 @@ def coverage_for_feature(
         "covered_statements": cov.total(),
         "files_touched": len(cov.per_file),
         "sources": cov.top(top_n),
+        # 실행된 **줄 번호**. 돌연변이가 미실행 줄을 고르지 않게 하는 데 쓴다 (TS-026).
+        # 비어 있으면 '줄 지도를 못 얻었다'이며 '실행된 줄이 없다'가 아니다 —
+        # `mutate` 가 그 둘을 구분해 전자는 경고와 함께 진행하고 후자는 건너뛴다.
+        "executed_lines": cov.executed_lines,
     }, ""
 
 
@@ -530,9 +534,27 @@ def apply_flag(
                 # **측정 실패가 아니라 측정 대상 부재**다. 변이할 구문이 없는 코드는
                 # 있을 수 있고(상수 선언만 있는 모듈 등), 그것을 거부하면 거짓 거부가 된다.
                 # 도구 고장(위의 error)과 구분해 기록만 남긴다.
+                #
+                # 대상 부재의 **두 가지 이유를 구분한다** (TS-026):
+                #   (a) 변이할 구문이 아예 없다 — 상수 선언만 있는 모듈
+                #   (b) 구문은 있는데 **증거가 그 줄을 지나가지 않는다**
+                # 둘을 같은 문구로 기록하면 나중에 읽는 사람이 (b) 를 (a) 로 읽는다.
+                # (b) 를 거부하지 않는 이유: 커버리지 게이트가 이미 '소스 1줄 이상
+                # 실행'을 요구했으므로 증거는 어딘가에 닿았고, 그 줄이 변이 가능한
+                # 구문이 아닐 수 있다 — 그것은 결함이 아니다.
+                unexec = report.get("skipped_unexecuted") or 0
+                if unexec:
+                    reason = (
+                        f"변이 가능한 구문은 {unexec}곳 있으나 **증거가 그 줄을 "
+                        f"하나도 지나가지 않습니다** — 테스트의 단정이 약한 것이 아니라 "
+                        f"도달하지 않는 것입니다 (TS-026)"
+                    )
+                else:
+                    reason = "변이를 적용할 구문이 없습니다 (비교·논리·조건·불리언 없음)"
                 verification["mutation"] = {
                     "measured": False,
-                    "reason": "변이를 적용할 구문이 없습니다 (비교·논리·조건·불리언 없음)",
+                    "reason": reason,
+                    "unreached_sites": unexec,
                 }
             elif report["killed"] <= 0:
                 return False, (
@@ -549,6 +571,11 @@ def apply_flag(
                     "invalid": report["invalid"],
                     "score": report["score"],
                     "targets": report["sources"],
+                    # 점수와 **그 점수가 무엇을 뺀 값인지**를 같이 적는다 (TS-026).
+                    # 미실행 줄을 분모에서 빼면 점수가 올라가므로, 뺀 사실을 함께
+                    # 기록하지 않으면 저장된 수치가 실제보다 좋아 보인다 (TS-024 의 모양).
+                    "unreached_sites": report.get("skipped_unexecuted") or 0,
+                    "unmapped_files": report.get("unmapped_files") or [],
                 }
 
     feature["passes"] = passes
