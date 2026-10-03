@@ -378,6 +378,21 @@ def cmd_inspect(args) -> int:
 
     print(inspect_mod.format_report(report, root))
 
+    if args.write_draft:
+        # 초안과 질문을 **읽을 수 있는 형태로** 함께 출력한다 (TS-028). JSON 만 쓰고
+        # 끝내면 사람이 파일을 열어 읽은 선언을 하나씩 대조해야 한다 — 검토 비용을
+        # 줄이는 것이 초안의 목적이므로 어느 선언에서 왔는지를 눈앞에 보여준다.
+        from harness.draft import DraftSpec, format_draft
+
+        specs = [
+            DraftSpec(id=d["id"], description=d["description"], steps=d.get("steps") or [],
+                      source=d.get("source") or [],
+                      review_question=d.get("review_question", ""))
+            for d in report.draft
+        ]
+        print()
+        print(format_draft(specs, report.questions))
+
     if args.write_draft and report.draft:
         draft_path = root / "features.draft.json"
         if draft_path.exists() and not args.force:
@@ -388,8 +403,9 @@ def cmd_inspect(args) -> int:
                 encoding="utf-8",
             )
             print(f"\n  초안 작성: {draft_path} ({len(report.draft)}건)")
-            print("  이것은 **명세가 아닙니다.** 읽고 판단한 뒤 features.json 으로 옮기십시오 —")
-            print("  검수가 뽑은 항목을 그대로 명세로 쓰면 코드를 그 코드로 검사하는 순환입니다.")
+            print("  이것은 **명세가 아닙니다.** 읽고 판단한 뒤 features.json 으로 옮기십시오.")
+            print("  각 항목의 `source` 가 읽은 선언의 원문과 위치입니다 — **선언 자체가**")
+            print("  **틀렸다면 초안도 틀립니다.** 그 판단은 사람만 할 수 있습니다.")
 
     return 1 if any(c.auto and c.verdict == "violated" for c in report.checks) else 0
 

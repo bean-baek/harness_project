@@ -46,6 +46,8 @@ harness/              the operating layer — gate, measurement, runner, inspect
   project.py          .harness.json declaration + project inspection
   inspect.py          objective metric (invariant) extraction
   independence.py     evidence independence — does a test supply its own structure
+  draft.py            spec drafts — extracted from declarations (not circular)
+  exposure.py         exposure diagnosis — which failure modes apply here
   deadcode.py         self-audit — dead config, orphan code
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
@@ -724,6 +726,7 @@ python verification/repro_ts024.py   # blocks drift in published numbers
 python verification/repro_ts025.py   # foreign project shapes (vitest / pytest fixtures)
 python verification/repro_ts026.py   # no mutation on unexecuted lines + reach reporting
 python verification/repro_ts027.py   # exposure diagnosis (declaration <-> checker)
+python verification/repro_ts028.py   # spec draft from declarations
 
 cd web_target
 npm run lint       # exit 0
@@ -791,7 +794,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/027` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/028` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -828,6 +831,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-025 | Every verification looked at one subject — touching a second project surfaced five defects at once |
 | TS-026 | Faults were planted on lines the evidence never reaches, and their survival was counted as an evidence gap — all four published scores were wrong |
 | TS-027 | Every failure mode was recorded after the fact — nothing asked which ones a project is exposed to before attaching |
+| TS-028 | The "spec draft" was inspection findings dressed as features — two of four were not features and two had no content |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

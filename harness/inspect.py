@@ -121,6 +121,8 @@ class Report:
     readiness: Readiness = field(default_factory=Readiness)
     checks: list[Check] = field(default_factory=list)
     draft: list[dict[str, Any]] = field(default_factory=list)
+    #: 명세가 필요하지만 내용이 구현에만 있는 자리 — 초안이 아니라 질문이다 (TS-028)
+    questions: list[Any] = field(default_factory=list)
 
 
 # ── 파일 수집 ────────────────────────────────────────────────────────────────
@@ -530,33 +532,57 @@ def assess_readiness(root: Path, cfg: ProjectConfig, harness_root: str | Path) -
 
 # ── 명세 초안 ────────────────────────────────────────────────────────────────
 
+#: 검수 항목 중 **기능이 아닌 것** — 코드 위생 규칙이다 (TS-028).
+#:
+#: "모든 소스가 테스트에서 import 된다", "export 가 참조된다" 는 사용자가 관찰할
+#: 수 있는 행동이 아니고 `steps` 를 채울 수도 없다. `features.json` 에 넣으면
+#: 게이트가 기능 아닌 것을 기능으로 센다. 검수 보고(`checks`)에 남고 초안에서는 뺀다.
+NOT_FEATURES = frozenset({"untested-source", "unreferenced-export", "dead-script"})
+
+
 def draft_spec(root: Path, cfg: ProjectConfig, checks: list[Check],
-               start: int = 1) -> list[dict[str, Any]]:
-    """검수에서 나온 항목으로 명세 **초안**을 만든다.
+               existing: list[dict[str, Any]] | None = None
+               ) -> tuple[list[dict[str, Any]], list[Any]]:
+    """명세 **초안**과 **질문**을 만든다. (초안 목록, 질문 목록)
 
     초안은 `features.draft.json` 에만 쓴다 — `features.json` 에 직접 넣으면 하네스가
     자기가 코드에서 뽑은 명세로 그 코드를 검사하게 되어 순환이다 (TS-013).
     각 항목에는 `origin` 과 `needs_review` 를 박아 출처를 지운 채 섞이지 않게 한다.
+
+    이전 구현은 **검수 발견 사항을 기능처럼 포장**했다 (TS-028). 실측한 4건 중 둘은
+    코드 위생 규칙이고 둘은 내용 없는 주제였으며, ID 가 `F-001` 부터 시작해 기존
+    명세와 **충돌**했다. 지금은 셋으로 나눈다:
+
+      초안   `harness/draft.py` 가 **선언**에서 뽑은 행동 명세 (검증 지점이 다르다)
+      질문   명세가 필요하지만 내용이 **구현에만** 있는 자리 — 사람이 결정할 것
+      제외   코드 위생 규칙 — 검수 보고에 남기고 초안에 넣지 않는다
     """
-    prefix_match = re.match(r"([A-Za-z]+)(.)", cfg.id_pattern)
-    prefix = (prefix_match.group(1) + "-") if prefix_match else "F-"
-    out: list[dict[str, Any]] = []
-    n = start
+    from harness.draft import (
+        DraftQuestion,
+        draft_from_declarations,
+        extract_declarations,
+    )
+
+    existing = existing or []
+    decls = extract_declarations(root, cfg)
+    specs = draft_from_declarations(decls, existing, cfg.id_pattern)
+
+    questions: list[Any] = []
     for c in checks:
+        if c.kind in NOT_FEATURES:
+            continue                        # 기능이 아니다 — 검수 보고에만 남는다
         if c.auto and c.verdict == "ok":
-            continue        # 이미 통과한 불변식은 명세로 올릴 필요가 없다
-        out.append({
-            "id": f"{prefix}{n:03d}",
-            "description": c.claim,
-            "passes": False,
-            "steps": [],
-            "origin": f"inspect:{c.kind}",
-            "needs_review": True,
-            "note": c.detail or ("자동 판정 가능 — 구현만 고치면 됩니다"
-                                 if c.auto else "의도를 확인한 뒤 steps 를 채우십시오"),
-        })
-        n += 1
-    return out
+            continue                        # 이미 통과한 불변식은 명세로 올릴 필요가 없다
+        if c.verdict == "needs-intent":
+            questions.append(DraftQuestion(
+                topic=c.claim,
+                where=c.implemented_at or c.declared_at or "위치 불명",
+                decision=c.detail or "무엇이 올바른 동작인지",
+                why_not_drafted=("답이 코드의 **제어 흐름**에만 있습니다. 읽어서 "
+                                 "명세로 올리면 그 구현을 그 구현으로 검사하는 "
+                                 "**순환**이 됩니다 (TS-013)"),
+            ))
+    return [s.to_feature() for s in specs], questions
 
 
 # ── 진입점 ───────────────────────────────────────────────────────────────────
@@ -582,7 +608,21 @@ def inspect_project(harness_root: str | Path, cfg: ProjectConfig | None = None,
         readiness=assess_readiness(root, cfg, harness_root),
         checks=checks + intent,
     )
-    report.draft = draft_spec(root, cfg, report.checks)
+    # 기존 명세를 넘겨 ID 충돌을 피한다 — 이전 구현은 F-001 부터 내서 겹쳤다 (TS-028)
+    try:
+        existing = json.loads(
+            (root / "features.json").read_text(encoding="utf-8")
+        ) if (root / "features.json").is_file() else []
+    except (json.JSONDecodeError, OSError):
+        existing = []
+    if not existing:
+        # 이 레포의 배치: 명세는 하네스 루트, 앱은 target/ 아래다
+        fp = harness_root / "features.json"
+        try:
+            existing = json.loads(fp.read_text(encoding="utf-8")) if fp.is_file() else []
+        except (json.JSONDecodeError, OSError):
+            existing = []
+    report.draft, report.questions = draft_spec(root, cfg, report.checks, existing)
     return report
 
 
@@ -648,8 +688,26 @@ def format_report(report: Report, harness_root: str | Path) -> str:
         "        어느 한쪽이 틀리면 잡힙니다 — 의도를 몰라도 판정됩니다.",
         "    [3] 은 코드 어디에도 답이 적혀 있지 않습니다. 제가 현재 구현을 읽어 명세로",
         "        올리면 그 구현을 그 구현으로 검사하는 순환이 됩니다 (TS-013).",
-        f"    초안 {len(report.draft)}건을 features.draft.json 으로 쓸 수 있습니다",
-        "        (`cli inspect --write-draft`). 초안은 사람이 옮겨야 효력이 생깁니다.",
+    ]
+    # 초안과 질문을 **나눠서** 보고한다 (TS-028). 이전에는 검수 발견 사항을 기능처럼
+    # 포장해 섞어 냈고, 그중 둘은 코드 위생 규칙이라 `steps` 를 채울 수도 없었다.
+    if report.draft:
+        lines += [
+            f"    초안 {len(report.draft)}건 — **선언에서 뽑은 행동 명세**입니다.",
+            "        `cli inspect --write-draft` 로 features.draft.json 에 씁니다.",
+            "        각 항목에 읽은 선언의 원문과 위치가 붙어 있습니다 — 선언 자체가",
+            "        틀렸다면 초안도 틀리므로 그 판단은 사람이 해야 합니다.",
+        ]
+    else:
+        lines.append("    초안 0건 — 뽑을 상태 조건부 선언을 찾지 못했습니다.")
+    if report.questions:
+        lines += [
+            f"    질문 {len(report.questions)}건 — 명세가 필요하지만 내용이 **구현에만**",
+            "        있습니다. 초안으로 내지 않습니다 (읽어서 올리면 순환입니다).",
+        ]
+    lines += [
+        "    코드 위생 규칙(미테스트 소스·미참조 export)은 **기능이 아니므로** 초안에",
+        "        넣지 않습니다 — 위 [2] 에만 남습니다.",
         bar,
     ]
     return "\n".join(lines)

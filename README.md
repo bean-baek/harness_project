@@ -45,6 +45,8 @@ harness/              운영 계층 — 게이트·측정·런너·검수 (결�
   project.py          .harness.json 선언 + 프로젝트 검수
   inspect.py          객관 지표(불변식) 추출
   independence.py     증거 독립성 — 테스트가 구조를 자급하는가
+  draft.py            명세 초안 — 선언에서 뽑는다 (순환 아님)
+  exposure.py         노출 진단 — 어떤 실패 모드에 노출됐는가
   deadcode.py         하네스 자기 감사 — 죽은 설정·고아 코드
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
@@ -554,6 +556,57 @@ TS-006  런너가 설치되지 않으면 노출 — 게이트가 켜져 있어�
 README 가 "`GOOGLE_API_KEY=""` 로 강제한다"고 선언한 것이 `.env` 가 있는 로컬에서
 **아무 일도 하지 않았다.** 현재 값은 `cli exposure` 로 직접 확인한다.
 
+### 4.7 명세를 사람이 쓰기 전에 — 초안 (TS-028)
+
+```bash
+python -m harness.cli inspect --write-draft     # features.draft.json
+```
+
+이 명령은 **초안을 만든다고 선언하면서 검수 발견 사항을 기능처럼 포장**하고 있었다.
+실측한 초안 4건 중 둘은 코드 위생 규칙이었고(사용자가 관찰할 행동이 없고 `steps` 를
+채울 수도 없다) 둘은 내용 없는 주제였으며, ID 가 `F-001` 부터 시작해 **기존 명세와
+충돌**했다.
+
+핵심 질문은 하나다 — **코드를 읽어 명세를 쓰면 순환이 아닌가** (TS-013).
+
+| | 예 | 왜 |
+|---|---|---|
+| **순환** | `if (!email.includes('@')) setError(…)` → "@ 가 없으면 오류" | 그 구현으로 그 구현을 검사한다. 항상 통과한다 |
+| **불변식** | `disabled={loading}` → "loading 일 때 비활성화된다" | 선언을 읽고 **런타임 행동**을 검사한다. 두 지점이 다르다 |
+
+그래서 **상태 조건부 선언만** 쓴다. 무조건 속성(`role="main"`)은 제외한다 — 뽑아낸
+그 속성을 그대로 다시 읽는 한 지점 검사이고 아무것도 검증하지 않는다.
+검증 제약(`required`·`minLength`)은 값이 리터럴이지만 **거부 행동**을 약속하므로
+검증 지점이 다르다.
+
+전후:
+
+```
+전:  F-001  모든 소스 파일이 최소 한 개의 테스트에서 import 된다   ← 기능이 아니다
+     F-003  LoginForm 의 입력 검증 규칙                          ← 내용이 없다
+
+후:  F-078  loading 일 때 비밀번호 입력란과 이메일 입력란이 비활성화된다
+            · loading 일 때 비밀번호 입력란이 비활성화된다
+            · loading 일 때 이메일 입력란이 비활성화된다
+            ← src/components/LoginForm.tsx:161  disabled={loading}
+```
+
+행동 문장이고, `steps` 가 있고, **읽은 선언의 원문과 위치**가 붙어 있다. 요소는
+`<label>` 의 글자로 부른다 — `emailId` 라고 쓰면 읽는 사람에게 의미가 없다.
+
+출력은 셋으로 나뉜다:
+
+| | 어디로 | 왜 |
+|---|---|---|
+| 상태 조건부 선언 | **초안** | 검증 지점이 다르다 |
+| 내용이 구현에만 있는 자리 | **질문** | 읽어서 올리면 순환이다. 내릴 **결정**을 적어 넘긴다 |
+| 코드 위생 규칙 | **제외** | 기능이 아니다. 검수 보고에만 남는다 |
+
+**한계를 초안 자신이 들고 있다.** 선언 기반 초안은 **회귀 울타리이고 정확성 증명이
+아니다** — 저자가 틀린 것을 선언했다면 초안은 그 버그를 명세로 고정한다. 그래서 모든
+항목에 원문·위치와 함께 `review_question` 이 붙는다. 사람이 판단할 것은 빈 종이가
+아니라 **구체적인 한 문장**이다.
+
 ---
 
 ## 5. 유료 API 모드
@@ -768,6 +821,7 @@ python verification/repro_ts024.py   # 발표된 수치의 드리프트 차단
 python verification/repro_ts025.py   # 외부 프로젝트 모양 (vitest·pytest 픽스처)
 python verification/repro_ts026.py   # 미실행 줄 변이 차단 + 도달률
 python verification/repro_ts027.py   # 노출 진단 (선언 ↔ 검사기)
+python verification/repro_ts028.py   # 명세 초안 (선언 기반 추출)
 
 cd web_target
 npm run lint       # exit 0
@@ -832,7 +886,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 
 | 잡 | 내용 |
 |---|---|
-| `하네스 검증` | `verification/repro_ts005/…/027` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `하네스 검증` | `verification/repro_ts005/…/028` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
@@ -869,6 +923,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-025 | 모든 검증이 피험체 한 명을 봤다 — 두 번째 프로젝트에 닿자 결함 5개가 동시에 드러났다 |
 | TS-026 | 증거가 지나가지 않는 줄에 결함을 심고 그 생존을 증거의 구멍으로 셌다 — 발표된 점수 네 개가 전부 틀렸다 |
 | TS-027 | 실패 모드 기록이 전부 터진 뒤에 쓰였다 — 붙이기 전에 노출을 묻는 장치가 없었다 |
+| TS-028 | '명세 초안'이 검수 발견 사항을 기능처럼 포장한 것이었다 — 넷 중 둘은 기능이 아니고 둘은 내용이 없었다 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

@@ -339,21 +339,27 @@ check("import 안 된 소스를 잡는다", checks[0].verdict, "violated")
 check("b.ts 를 지목", "b.ts" in checks[0].detail, True)
 check("a.ts 는 지목하지 않는다", "a.ts" in checks[0].detail.replace("b.ts", ""), False)
 
-print("\n[10] 명세 초안 — 출처가 박히는가")
-draft = I.draft_spec(tmpdir(), project.ProjectConfig(), [
+print("\n[10] 명세 초안 — 검수 발견 사항을 기능으로 포장하지 않는가")
+# 이 블록은 **옛 계약을 고정하고 있었다** (TS-028). `draft_spec` 이 검수 항목을
+# 그대로 명세 모양으로 감싸는 것을 "출처가 박힌다"로 통과시켰고, 그래서 코드 위생
+# 규칙이 기능으로 섞이는 결함이 회귀 검증을 통과했다. 지금은 셋으로 나뉜다:
+#   초안(선언 기반) · 질문(내용이 구현에만 있다) · 제외(기능이 아니다)
+# 상세는 repro_ts028.py 가 고정한다. 여기서는 **분리 자체**를 본다.
+drafts, questions = I.draft_spec(tmpdir(), project.ProjectConfig(), [
     I.Check("dead-script", "A", verdict="violated", auto=True),
     I.Check("form-rules", "B", verdict="needs-intent", auto=False),
     I.Check("untested-source", "C", verdict="ok", auto=True),
 ])
-check("자동 통과 항목은 초안에서 제외", len(draft), 2)
-check("출처가 박힌다", draft[0]["origin"], "inspect:dead-script")
-check("검토 필요 표시", all(d["needs_review"] for d in draft), True)
-check("통과로 시작하지 않는다", all(d["passes"] is False for d in draft), True)
-check("ID 접두사 반영", draft[0]["id"], "F-001")
-draft2 = I.draft_spec(tmpdir(), project.ProjectConfig(id_pattern="TASK-" + chr(92) + "d{4}"), [
-    I.Check("form-rules", "B", verdict="needs-intent", auto=False),
-])
-check("커스텀 접두사 반영", draft2[0]["id"], "TASK-001")
+check("빈 디렉터리에는 뽑을 선언이 없으므로 초안 0건", drafts, [])
+check("죽은 스크립트는 기능이 아니므로 질문도 아니다",
+      any("A" == q.topic for q in questions), False)
+check("자동 통과 항목은 질문에 들어가지 않는다",
+      any("C" == q.topic for q in questions), False)
+check("의도가 필요한 항목만 질문이 된다", [q.topic for q in questions], ["B"])
+check("질문에 초안을 내지 않는 이유가 적힌다",
+      "순환" in questions[0].why_not_drafted, True)
+check("코드 위생 규칙 목록이 선언돼 있다",
+      {"untested-source", "unreferenced-export", "dead-script"} <= I.NOT_FEATURES, True)
 
 print("\n[11] 게이트 준비 상태 — 막는 것을 전부 열거하는가")
 ready = tmpdir()

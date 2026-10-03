@@ -486,6 +486,32 @@ def check_mutation_line_map(ctx: Context) -> tuple[str, str]:
     return "protected", "커버리지 리포터가 줄 지도를 만든다 (미실행 줄을 변이에서 제외한다)"
 
 
+def check_draft_quality(ctx: Context) -> tuple[str, str]:
+    """TS-028 — 명세 초안을 뽑을 **선언**이 이 프로젝트에 있는가.
+
+    초안은 상태 조건부 선언(`disabled={…}`)과 검증 제약(`required`)에서만 나온다.
+    그런 선언이 없는 프로젝트에서는 초안이 0건이고, 그것은 결함이 아니라 **조건**이다
+    — 명세를 전부 손으로 써야 한다는 뜻이므로 알려줄 가치가 있다.
+    """
+    from harness.draft import extract_declarations
+
+    try:
+        decls = extract_declarations(ctx.root, ctx.cfg)
+    except OSError as exc:
+        return "unknown", f"선언을 읽지 못했다: {exc}"
+    if not decls:
+        return "exposed", (
+            "뽑을 상태 조건부 선언이 없다 (`disabled={…}`·`aria-invalid={…}`·"
+            "`required` 등). 명세 초안이 0건이므로 **명세를 전부 손으로 써야 한다** — "
+            "`cli inspect` 의 질문 목록이 어디를 적어야 하는지는 알려준다"
+        )
+    kinds = {d.rule_kind for d in decls}
+    return "protected", (
+        f"선언 {len(decls)}건에서 초안을 뽑을 수 있다 "
+        f"({'·'.join(sorted(kinds))}) — `cli inspect --write-draft`"
+    )
+
+
 def check_exposure_declarations(ctx: Context) -> tuple[str, str]:
     """TS-027 — 실패 모드 기록이 **질의 가능한가.**
 
@@ -547,6 +573,7 @@ CHECKS: dict[str, Callable[[Context], tuple[str, str]]] = {
     "runner-verified": check_runner_verified,
     "mutation-line-map": check_mutation_line_map,
     "exposure-declarations": check_exposure_declarations,
+    "draft-quality": check_draft_quality,
 }
 
 

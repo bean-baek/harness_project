@@ -27,6 +27,7 @@ python verification/repro_ts005.py
 | `repro_ts025.py` | 외부 프로젝트 모양 — `fixtures/` 의 vitest·pytest 픽스처 |
 | `repro_ts026.py` | 미실행 줄 변이 차단 + 점수와 도달률의 분리 |
 | `repro_ts027.py` | 노출 진단 — 문서 선언 ↔ 검사기 양방향 강제 |
+| `repro_ts028.py` | 명세 초안 — 선언 기반 추출, 순환 경계, ID 충돌 |
 
 **건수를 적지 않는다 (TS-024).** 스크립트가 바뀌면 이 표의 숫자가 조용히 거짓이 된다 —
 같은 종류의 드리프트로 README 가 같은 측정값을 네 번 다르게 발표한 적이 있다.
