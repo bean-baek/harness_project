@@ -32,3 +32,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-026](TS-026-mutating-unexecuted-lines.md) | resolved | high | 증거가 지나가지 않는 줄에 결함을 심고 그 생존을 증거의 구멍으로 셌다 — 발표된 점수 네 개가 전부 틀렸다 | `harness/runner.py`, `harness/mutate.py`, `harness/verify.py` |
 | [TS-027](TS-027-failure-modes-recorded-after-the-fact.md) | resolved | medium | 실패 모드 기록이 전부 터진 뒤에 쓰였다 — 붙이기 전에 노출을 묻는 장치가 없었다 | `harness/exposure.py`, `config.py` |
 | [TS-028](TS-028-draft-was-not-a-spec.md) | resolved | medium | '명세 초안'이 검수 발견 사항을 기능처럼 포장한 것이었다 — 넷 중 둘은 기능이 아니고 둘은 내용이 없었다 | `harness/draft.py`, `harness/inspect.py` |
+| [TS-029](TS-029-blind-check-disabled-a-real-gate.md) | resolved | medium | 오탐이 있는 판정으로 차단하려다 `|| true` 가 붙어 정확한 판정의 차단력까지 잃었다 | `harness/inspect.py`, `.github/workflows/ci.yml` |

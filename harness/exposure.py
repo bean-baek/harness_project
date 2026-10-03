@@ -512,6 +512,40 @@ def check_draft_quality(ctx: Context) -> tuple[str, str]:
     )
 
 
+def check_advisory_split(ctx: Context) -> tuple[str, str]:
+    """TS-029 — 차단하는 판정에 **맹점 있는 검사**가 섞여 있는가.
+
+    맹점 있는 판정을 차단 자리에 놓으면 오탐이 CI 를 영구히 빨간불로 만들고,
+    그 압력이 `|| true` 를 낳아 **같은 명령 안의 정확한 판정까지** 꺼진다.
+    """
+    from harness import inspect as inspect_mod
+
+    try:
+        report = inspect_mod.inspect_project(ctx.harness_root)
+    except (OSError, ValueError) as exc:
+        return "unknown", f"검수를 돌리지 못했다: {exc}"
+    blocking = [c for c in report.checks if c.auto and c.verdict == "violated"]
+    advisory = [c for c in report.checks if c.verdict == "advisory"]
+
+    ci = ctx.harness_root / ".github" / "workflows" / "ci.yml"
+    ci_text = ci.read_text(encoding="utf-8") if ci.is_file() else ""
+    if "cli inspect || true" in ci_text:
+        return "exposed", (
+            "CI 가 `cli inspect || true` 로 **종료 코드를 버린다** — 검수가 돌지만 "
+            "아무것도 막지 못한다. 맹점 있는 판정은 `advisory` 로 내리고 `|| true` 를 뗄 것"
+        )
+    if blocking:
+        return "exposed", (
+            f"차단하는 위반 {len(blocking)}건이 있다: "
+            f"{', '.join(c.kind for c in blocking)} — 고치거나, 맹점이 있는 판정이라면 "
+            "`advisory` 로 내릴 것"
+        )
+    return "protected", (
+        f"위반 0 · 권고 {len(advisory)} — 맹점 있는 판정은 차단하지 않고, "
+        "맹점 없는 판정(죽은 스크립트·라우트 누락)은 CI 가 막는다"
+    )
+
+
 def check_exposure_declarations(ctx: Context) -> tuple[str, str]:
     """TS-027 — 실패 모드 기록이 **질의 가능한가.**
 
@@ -574,6 +608,7 @@ CHECKS: dict[str, Callable[[Context], tuple[str, str]]] = {
     "mutation-line-map": check_mutation_line_map,
     "exposure-declarations": check_exposure_declarations,
     "draft-quality": check_draft_quality,
+    "advisory-split": check_advisory_split,
 }
 
 

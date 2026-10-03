@@ -77,14 +77,24 @@ class Check:
     declared_at: str = ""
     #: 구현 지점 — '실제로 그렇게 되어 있는가'
     implemented_at: str = ""
-    #: 'ok' | 'violated' | 'needs-intent'
+    #: 'ok' | 'violated' | 'advisory' | 'needs-intent'
+    #:
+    #: `advisory` 가 왜 필요한가 (TS-029): `violated` 는 **차단 근거가 서는** 판정이다.
+    #: 그런데 검사기에 **알려진 맹점**이 있으면 그 판정으로 차단할 수 없다 —
+    #: 재export·동적 import·전이 import 를 못 보는 검사가 그렇다. 실측에서
+    #: `untested-source` 가 14건을 보고했고 그중 2건이 오탐이었다.
+    #:
+    #: 이전에는 그 둘도 `violated` 였고, 그래서 CI 가 `cli inspect || true` 로
+    #: **종료 코드를 버리고** 있었다. 오탐이 있는 판정 하나 때문에 정확한 판정
+    #: (죽은 npm 스크립트, 라우트 누락)까지 차단력을 잃었다. 둘을 나눈다.
     verdict: str = "needs-intent"
     detail: str = ""
     #: 의도 없이 판정 가능한가
     auto: bool = False
 
     def line(self) -> str:
-        mark = {"ok": "통과", "violated": "위반", "needs-intent": "의도필요"}
+        mark = {"ok": "통과", "violated": "위반", "advisory": "권고",
+                "needs-intent": "의도필요"}
         head = f"  [{mark.get(self.verdict, self.verdict)}] {self.claim}"
         parts = [head]
         if self.declared_at and self.implemented_at:
@@ -338,25 +348,56 @@ def check_route_completeness(root: Path, cfg: ProjectConfig) -> list[Check]:
     return checks
 
 
+#: `from './x'` / `require('./x')` 의 모듈 이름
+_IMPORT_SPEC_RE = re.compile(
+    r"""from\s+['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]""")
+
+
+def _imported_stems(text: str) -> set[str]:
+    """그 파일이 import 하는 모듈의 파일명(확장자 없이)."""
+    out: set[str] = set()
+    for m in _IMPORT_SPEC_RE.finditer(text):
+        spec = m.group(1) or m.group(2) or ""
+        if spec:
+            out.add(Path(spec).stem)
+    return out
+
+
 def check_untested_sources(root: Path, cfg: ProjectConfig) -> list[Check]:
     """어떤 테스트 파일도 import 하지 않는 소스 파일.
 
     커버리지를 돌리지 않고 **정적으로** 판정한다 — 런너가 설치되지 않은 프로젝트에서도
     답이 나와야 한다. import 되지 않은 파일은 커버리지가 0 임이 확정이다.
     """
-    sources = _source_files(root, cfg)
+    # 타입 선언 파일(`.d.ts`)은 실행될 코드가 없다 — '커버리지 0' 이 당연하고
+    # 결함이 아니다. 세면 오탐이 하나 늘어난다 (실측: `vite-env.d.ts`).
+    sources = [p for p in _source_files(root, cfg) if not p.name.endswith(".d.ts")]
     if not sources:
         return []
     tests = _test_files(root, cfg)
-    imported: set[str] = set()
-    for t in tests:
-        text = _read(t)
-        for m in re.finditer(r"""from\s+['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]""", text):
-            spec = m.group(1) or m.group(2) or ""
-            imported.add(Path(spec).name)
-            imported.add(Path(spec).stem)
 
-    untested = [p for p in sources if p.stem not in imported and p.name not in imported]
+    # **전이 import 를 따라간다.** 직접 import 만 보면 `App.tsx` 를 테스트가
+    # import 하고 `App.tsx` 가 `Layout.tsx` 를 import 할 때 `Layout.tsx` 가
+    # 실행되는데도 '미테스트'로 보고된다 — 실측에서 14건 중 2건이 그 오탐이었다.
+    by_stem = {p.stem: p for p in sources}
+    reached: set[str] = set()
+    frontier: list[str] = []
+    for t in tests:
+        for stem in _imported_stems(_read(t)):
+            if stem not in reached:
+                reached.add(stem)
+                frontier.append(stem)
+    while frontier:
+        cur = frontier.pop()
+        src = by_stem.get(cur)
+        if src is None:
+            continue
+        for dep in _imported_stems(_read(src)):
+            if dep in by_stem and dep not in reached:
+                reached.add(dep)
+                frontier.append(dep)
+
+    untested = [p for p in sources if p.stem not in reached]
     if not untested:
         return [Check(
             kind="untested-source",
@@ -374,9 +415,10 @@ def check_untested_sources(root: Path, cfg: ProjectConfig) -> list[Check]:
         claim="모든 소스 파일이 최소 한 개의 테스트에서 import 된다",
         declared_at=", ".join(cfg.source_dirs),
         implemented_at=f"테스트 {len(tests)}개",
-        verdict="violated", auto=True,
-        detail=f"소스 {len(sources)}개 중 {len(untested)}개가 어떤 테스트에도 import 되지 "
-               f"않습니다 (커버리지 0 확정): {shown}",
+        verdict="advisory", auto=True,
+        detail=f"소스 {len(sources)}개 중 {len(untested)}개에 어떤 테스트도 (전이적으로도) "
+               f"도달하지 않습니다: {shown}"
+               "\n           (동적 import 는 이 검사가 보지 못합니다 — 그래서 권고입니다)",
     )]
 
 
@@ -429,9 +471,12 @@ def check_unreferenced_exports(root: Path, cfg: ProjectConfig) -> list[Check]:
         claim="export 된 모든 심볼이 어딘가에서 참조된다",
         declared_at=", ".join(cfg.source_dirs),
         implemented_at="프로젝트 전체 import",
-        verdict="violated", auto=True,
+        # 재export·동적 import 를 못 보는 것이 **선언된 맹점**이므로 차단하지 않는다
+        # (TS-029). 맹점이 있는 판정으로 차단하면 오탐이 CI 를 영구히 빨간불로 만들고,
+        # 그 압력이 `|| true` 를 낳아 **정확한 판정의 차단력까지** 함께 잃는다.
+        verdict="advisory", auto=True,
         detail=f"export {len(exports)}개 중 {len(orphans)}개가 참조되지 않습니다: {shown}"
-               f"\n           (재export·동적 import 는 이 검사가 보지 못합니다 — 확인 후 판단하십시오)",
+               f"\n           (재export·동적 import 는 이 검사가 보지 못합니다 — 그래서 권고입니다)",
     )]
 
 
@@ -631,6 +676,7 @@ def format_report(report: Report, harness_root: str | Path) -> str:
     cfg, r = report.cfg, report.readiness
     auto = [c for c in report.checks if c.auto]
     violated = [c for c in auto if c.verdict == "violated"]
+    advisory = [c for c in auto if c.verdict == "advisory"]
     passed = [c for c in auto if c.verdict == "ok"]
     intent = [c for c in report.checks if not c.auto]
 
@@ -658,14 +704,17 @@ def format_report(report: Report, harness_root: str | Path) -> str:
     if not auto:
         lines.append("    추출된 불변식이 없습니다 (소스 디렉터리 설정을 확인하십시오).")
     else:
-        lines.append(f"    위반 {len(violated)} · 통과 {len(passed)}")
+        lines.append(f"    위반 {len(violated)} · 권고 {len(advisory)} · 통과 {len(passed)}")
         lines.append("")
-        for c in violated:
-            lines.append(c.line())
-        if violated and passed:
-            lines.append("")
-        for c in passed:
-            lines.append(c.line())
+        for group in (violated, advisory, passed):
+            for c in group:
+                lines.append(c.line())
+            if group:
+                lines.append("")
+        # 위반과 권고를 가르는 기준을 **출력에 적는다** (TS-029). 적지 않으면
+        # 다음 사람이 "권고도 위반인데 왜 안 막나"로 읽고 다시 합친다.
+        lines.append("    위반 = 차단 근거가 서는 판정 (검사기에 맹점이 없다) → 종료 코드 1")
+        lines.append("    권고 = 사실이지만 검사기에 **알려진 맹점**이 있다 → 차단하지 않는다")
     lines.append("")
 
     lines += [f"  [3] 의도가 필요한 후보 — 제가 정할 수 없는 것 ({len(intent)}건)",

@@ -313,7 +313,10 @@ dead = tmpdir()
 write(dead / "src" / "api.ts", "export const authApi = 1;\nexport const used = 2;\n")
 write(dead / "src" / "App.tsx", "import { used } from './api';\n")
 checks = I.check_unreferenced_exports(dead, cfg_dyn)
-check("진짜 미참조는 위반", checks[0].verdict, "violated")
+# 재export·동적 import 를 못 보는 **선언된 맹점**이 있으므로 권고다 (TS-029).
+# 차단하면 오탐이 CI 를 빨간불로 만들고 그 압력이 `|| true` 를 낳는다.
+check("진짜 미참조는 보고된다 (권고 — 맹점이 선언되어 있다)",
+      checks[0].verdict, "advisory")
 check("이름을 지목", "authApi" in checks[0].detail, True)
 check("한계를 함께 출력(재export·동적 import)", "동적 import" in checks[0].detail, True)
 
@@ -335,9 +338,51 @@ write(ut / "src" / "a.ts", "export const a = 1;\n")
 write(ut / "src" / "b.ts", "export const b = 2;\n")
 write(ut / "src" / "a.test.ts", "import { a } from './a';\n")
 checks = I.check_untested_sources(ut, project.ProjectConfig(source_dirs=["src"]))
-check("import 안 된 소스를 잡는다", checks[0].verdict, "violated")
+check("import 안 된 소스를 잡는다 (권고 — 동적 import 를 못 본다)",
+      checks[0].verdict, "advisory")
 check("b.ts 를 지목", "b.ts" in checks[0].detail, True)
 check("a.ts 는 지목하지 않는다", "a.ts" in checks[0].detail.replace("b.ts", ""), False)
+
+print("\n[9b] 위반과 권고를 가르는가 — 맹점 있는 판정으로 차단하지 않는다 (TS-029)")
+# `|| true` 가 CI 에 붙어 있던 이유: 검수가 '위반'으로 올린 2건이 **검사기에 알려진
+# 맹점이 있는** 판정이었다. 오탐 섞인 판정으로 차단하면 CI 가 영구히 빨간불이 되므로
+# 종료 코드를 버렸고, 그 바람에 **정확한 판정의 차단력까지** 잃었다.
+blind = tmpdir()
+write(blind / "src" / "used.ts", "export const A = 1;" + chr(10))
+write(blind / "src" / "leaf.ts", "export const L = 2;" + chr(10))
+write(blind / "src" / "mid.ts", "import { L } from './leaf';" + chr(10) + "export const M = L;" + chr(10))
+write(blind / "src" / "x.test.ts", "import { M } from './mid';" + chr(10))
+cfg_b = project.ProjectConfig(source_dirs=["src"], unit_suffixes=[".test.ts"])
+ut = I.check_untested_sources(blind, cfg_b)
+check("전이 import 를 따라간다 — mid 를 통해 leaf 에 도달",
+      "leaf.ts" in (ut[0].detail if ut else ""), False)
+check("도달하지 않는 파일만 보고한다", "used.ts" in (ut[0].detail if ut else ""), True)
+check("미테스트 소스는 **권고**다 (동적 import 를 못 본다)", ut[0].verdict, "advisory")
+# 타입 선언 파일은 실행될 코드가 없다 — 세면 오탐이 하나 늘어난다
+write(blind / "src" / "env.d.ts", "declare const X: string;" + chr(10))
+ut2 = I.check_untested_sources(blind, cfg_b)
+check(".d.ts 는 세지 않는다", "env.d.ts" in ut2[0].detail, False)
+
+exp = I.check_unreferenced_exports(blind, cfg_b)
+check("미참조 export 도 **권고**다 (재export 를 못 본다)",
+      exp[0].verdict if exp else "", "advisory")
+# 맹점이 없는 판정은 그대로 **위반**이어야 한다 — 차단력을 잃지 않는다
+write(blind / "package.json", json.dumps({"scripts": {"x": "nosuchtool --go"},
+                                          "dependencies": {}}))
+ds = I.check_dead_scripts(blind)
+check("죽은 npm 스크립트는 **위반**이다 (맹점 없음)", ds[0].verdict, "violated")
+check("권고는 종료 코드를 올리지 않는다",
+      any(c.auto and c.verdict == "violated"
+          for c in I.check_untested_sources(blind, cfg_b)
+          + I.check_unreferenced_exports(blind, cfg_b)), False)
+# 실제 레포: 위반 0 이어야 CI 가 `|| true` 없이 녹색이다
+real = I.inspect_project(PROJECT)
+check("실제 레포에 위반 0건 (CI 가 차단력을 되찾았다)",
+      [c.claim for c in real.checks if c.auto and c.verdict == "violated"], [])
+check("권고는 사라지지 않고 남는다",
+      len([c for c in real.checks if c.verdict == "advisory"]) >= 1, True)
+ci = (PROJECT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+check("CI 가 `cli inspect || true` 를 쓰지 않는다", "cli inspect || true" in ci, False)
 
 print("\n[10] 명세 초안 — 검수 발견 사항을 기능으로 포장하지 않는가")
 # 이 블록은 **옛 계약을 고정하고 있었다** (TS-028). `draft_spec` 이 검수 항목을
