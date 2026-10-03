@@ -1,0 +1,16 @@
+{
+  "target": ".",
+  "runner": "pytest",
+  "spec": "features.json",
+  "id_pattern": "PY-\\d{2}",
+  "unit_suffixes": [
+    "test_*.py"
+  ],
+  "e2e_suffixes": [
+    "e2e_*.py"
+  ],
+  "source_dirs": [
+    "src"
+  ],
+  "typecheck": []
+}

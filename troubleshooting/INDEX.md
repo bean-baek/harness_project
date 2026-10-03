@@ -28,3 +28,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-022](TS-022-detection-reach.md) | resolved | high | 탐지가 닿지 않는 두 구멍 — 표본은 파일 앞머리만, 연산자는 배열을 못 건드렸다 | `harness/mutate.py` |
 | [TS-023](TS-023-survivor-means-two-things.md) | resolved | high | 생존한 변이를 '테스트가 약하다'로 읽고 고치려 했다 — 명세가 요구하지 않는 것이었다 | `harness/mutate.py` |
 | [TS-024](TS-024-published-numbers-go-stale.md) | resolved | high | 같은 측정값을 네 번 다르게 발표했다 — 산문의 수치는 측정 코드가 바뀌면 조용히 거짓이 된다 | `harness/status.py` |
+| [TS-025](TS-025-single-subject-verification.md) | resolved | high | 모든 검증이 피험체 한 명을 봤다 — 두 번째 프로젝트에 닿자 결함 5개가 동시에 드러났다 | `harness/project.py`, `harness/independence.py`, `harness/inspect.py`, `harness/runner.py` |

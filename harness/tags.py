@@ -30,6 +30,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+#: 규약 판정은 ProjectConfig 와 같은 구현을 쓴다 — 호출자가 넷이고
+#: 그중 셋이 `endswith` 로 따로 구현해 pytest 에서 전부 틀렸다 (TS-025).
+from harness.project import matches_pattern
+
 #: 테스트 파일 판별 기본값 — `.harness.json` 이 없을 때만 쓴다.
 #: 이 값은 설정 외부화 이전의 하드코딩과 **같다** (동작 변화 없음).
 UNIT_SUFFIXES = (".test.ts", ".test.tsx")
@@ -79,9 +83,9 @@ def _kind_of(path: Path, units: tuple[str, ...], e2es: tuple[str, ...]) -> str |
     """단위 / E2E / 테스트 아님. E2E 를 먼저 보는 이유: `.spec.ts` 가 양쪽 규약에
     모두 쓰이는 프로젝트에서 E2E 선언이 있으면 그쪽이 더 구체적인 선언이다."""
     name = path.name
-    if name.endswith(e2es):
+    if matches_pattern(name, e2es):
         return "e2e"
-    if name.endswith(units):
+    if matches_pattern(name, units):
         return "unit"
     return None
 

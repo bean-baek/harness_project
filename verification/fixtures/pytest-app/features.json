@@ -1,0 +1,18 @@
+[
+  {
+    "id": "PY-01",
+    "description": "허용된 통화만 변환한다",
+    "passes": false,
+    "steps": [
+      "CURRENCIES 의 통화는 변환된다"
+    ]
+  },
+  {
+    "id": "PY-02",
+    "description": "알 수 없는 통화는 거부한다",
+    "passes": false,
+    "steps": [
+      "없는 통화는 None 을 돌려준다"
+    ]
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "target": ".",
+  "runner": "vitest",
+  "spec": "features.json",
+  "id_pattern": "APP-\\d{2}",
+  "unit_suffixes": [
+    ".test.js"
+  ],
+  "e2e_suffixes": [
+    ".e2e.js"
+  ],
+  "source_dirs": [
+    "src"
+  ],
+  "typecheck": []
+}

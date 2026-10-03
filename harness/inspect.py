@@ -128,7 +128,6 @@ class Report:
 def _source_files(root: Path, cfg: ProjectConfig) -> list[Path]:
     """선언된 소스 디렉터리 안의 소스 파일 (테스트 제외)."""
     out: list[Path] = []
-    suffixes = cfg.all_test_suffixes()
     for d in cfg.source_dirs:
         base = (root / d).resolve()
         if not base.is_dir():
@@ -138,17 +137,16 @@ def _source_files(root: Path, cfg: ProjectConfig) -> list[Path]:
                 continue
             if set(p.parts) & SKIP_DIRS:
                 continue
-            if p.name.endswith(suffixes):
+            if cfg.is_test_file(p.name):
                 continue
             out.append(p)
     return sorted(set(out))
 
 
 def _test_files(root: Path, cfg: ProjectConfig) -> list[Path]:
-    suffixes = cfg.all_test_suffixes()
     out = [
         p for p in root.rglob("*")
-        if p.is_file() and p.name.endswith(suffixes) and not (set(p.parts) & SKIP_DIRS)
+        if p.is_file() and cfg.is_test_file(p.name) and not (set(p.parts) & SKIP_DIRS)
     ]
     return sorted(set(out))
 

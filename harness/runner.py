@@ -158,7 +158,7 @@ class Runner:
 
     def _is_source(self, name: str) -> bool:
         """커버리지 집계에서 **테스트 파일 자신**을 제외한다 — 증거가 아니다."""
-        return not name.endswith(self.cfg.all_test_suffixes())
+        return not self.cfg.is_test_file(name)
 
 
 # ── JS 공통 ──────────────────────────────────────────────────────────────────

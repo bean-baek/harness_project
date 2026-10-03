@@ -684,6 +684,7 @@ python verification/repro_ts021.py   # 변이 연산자 + 돌연변이 게이트
 python verification/repro_ts022.py   # 탐지 범위 (표본·컬렉션 연산자)
 python verification/repro_ts023.py   # 생존의 의미를 명세로 가린다
 python verification/repro_ts024.py   # 발표된 수치의 드리프트 차단
+python verification/repro_ts025.py   # 외부 프로젝트 모양 (vitest·pytest 픽스처)
 
 cd web_target
 npm run lint       # exit 0
@@ -724,8 +725,19 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
   자동 판정 결과는 차단 근거로 쓰기 전에 한 번 눈으로 확인할 것.
 - **pytest 의 커버리지는 `pytest-cov` 가 필요하다.** 없으면 측정 실패 → 게이트가
   거부한다(설계대로). 설치 안내는 진단 메시지에 들어 있다.
-- vitest·pytest 어댑터는 **단위 검증으로만 확인했다** — 실제 vitest/pytest 프로젝트에서
-  끝까지 돌려본 것은 아니다. jest 경로만 실 환경 검증(51/51)을 거쳤다.
+- **런너별 검증 깊이가 다르다.** 이 표의 빈 칸은 '아마 될 것'이 아니라 '안 해 봤다'다.
+
+  | 계층 | jest | vitest | pytest |
+  |---|---|---|---|
+  | 정적 (설정 해소·규약 판정·태그·명세·검수) | CI | CI (픽스처) | CI (픽스처) |
+  | 런너 실행 (테스트·커버리지) | CI (51/51) | 실 프로젝트 수동 실측 | **미검증** |
+
+  정적 계층은 `verification/fixtures/` 의 vanilla-js(vitest) · pytest-app(pytest) 를
+  매 푸시마다 검사한다 — 런너·규약·ID 형식·언어·설정 위치가 `web_target` 과 모두 다르다.
+  이 픽스처를 만드는 과정에서 결함 5개가 나왔다. 그 전까지 **모든** 회귀 검증이
+  `web_target` 하나만 보고 있었고, 그래서 그중 하나도 이 다섯을 잡지 못했다
+  (TS-025 — 당시 건수는 그 문서에 있다). 런너를 **실행**하는 계층은 설치가 필요해
+  아직 jest 만 CI 에 있다.
 
 ---
 
@@ -737,7 +749,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 
 | 잡 | 내용 |
 |---|---|
-| `하네스 검증` | `verification/repro_ts005/…/023` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `하네스 검증` | `verification/repro_ts005/…/025` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
@@ -771,6 +783,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-022 | 탐지가 닿지 않는 두 구멍 — 표본은 파일 앞머리만, 연산자는 배열을 못 건드렸다 |
 | TS-023 | 생존한 변이를 '테스트가 약하다'로 읽고 고치려 했다 — 명세가 요구하지 않는 것이었다 |
 | TS-024 | 같은 측정값을 네 번 다르게 발표했다 — 산문의 수치는 측정 코드가 바뀌면 조용히 거짓이 된다 |
+| TS-025 | 모든 검증이 피험체 한 명을 봤다 — 두 번째 프로젝트에 닿자 결함 5개가 동시에 드러났다 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

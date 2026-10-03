@@ -126,6 +126,16 @@ jobs:
         env:
           GOOGLE_API_KEY: ""
 
+      # 699건이 전부 `web_target`(React+TS+jest) 하나만 봤고, 두 번째 프로젝트에 닿는
+      # 순간 결함 5개가 동시에 드러났다 (TS-025). 이 단계가 그 구멍을 기계화한다 —
+      # `verification/fixtures/` 의 vanilla-js(vitest) · pytest-app(pytest) 는
+      # 런너·규약·ID 형식·언어·설정 위치가 web_target 과 **모두 다르다.**
+      # 런너는 설치하지 않는다(정적 계층만) — 다섯 결함 중 넷이 거기 있었고 비용이 0이다.
+      - name: TS-025 — 외부 프로젝트 모양 (vitest · pytest 픽스처)
+        run: python verification/repro_ts025.py
+        env:
+          GOOGLE_API_KEY: ""
+
       # 생성 파일과 실측이 어긋나면 **문서가 거짓을 말하고 있다**는 뜻이다.
       # 락파일 검사와 같은 방식이라 오탐이 구조적으로 불가능하다 (TS-024).
       - name: 측정값 드리프트 검사 (docs/status.md)

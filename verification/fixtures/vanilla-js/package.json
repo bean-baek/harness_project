@@ -1,0 +1,12 @@
+{
+  "name": "vanilla-js-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
+}

@@ -43,7 +43,17 @@ from pathlib import Path
 SKIP_DIRS = frozenset({
     ".venv", "venv", "node_modules", "__pycache__", ".git", "dist", "build",
     "web_target", ".harness_memory", ".pytest_cache", ".mypy_cache",
+    # 검증 픽스처는 **의도적으로 작은 가짜 프로젝트**다 (TS-025). 그 안의 함수는
+    # 하네스가 호출하지 않으므로 고아로 보이지만 고아가 아니다 — 픽스처의 역할이
+    # "외부 프로젝트처럼 보이는 것"이기 때문이다. 감사 범위에서 뺀다.
+    "fixtures",
 })
+
+# 이 집합을 `project.SKIP_DIRS` 와 합치지 말 것 — 둘은 **반대 방향**이다.
+#   `deadcode.SKIP_DIRS`  하네스 자기 감사의 범위. 픽스처는 하네스 코드가 아니므로 뺀다.
+#   `project.SKIP_DIRS`   검사 **대상** 프로젝트 안에서 무시할 디렉터리 (빌드 산출물 등).
+# `inspect` 는 후자를 쓰고 **픽스처 안에서 동작해야 한다** — 거기에 "fixtures" 를 넣으면
+# 픽스처를 대상으로 지정했을 때 파일을 하나도 못 찾는다. `repro_ts025.py` [10] 이 그것을 고정한다.
 
 #: 참조가 없어도 정상인 이름 — 프레임워크가 호출하거나 컴파일러 지시자다
 EXEMPT_NAMES = frozenset({

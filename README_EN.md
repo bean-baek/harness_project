@@ -717,9 +717,10 @@ python verification/repro_ts018.py   # paid-path smoke (LangGraph, zero tokens)
 python verification/repro_ts019.py   # dead-config / orphan-code recurrence guard
 python verification/repro_ts020.py   # evidence independence (self-supply, channels)
 python verification/repro_ts021.py   # mutation operators + mutation gate
-python verification/repro_ts022.py   # detection reach (sampling, collection operator) 68/68
+python verification/repro_ts022.py   # detection reach (sampling, collection operator)
 python verification/repro_ts023.py   # what a surviving mutant means (spec-aware)
 python verification/repro_ts024.py   # blocks drift in published numbers
+python verification/repro_ts025.py   # foreign project shapes (vitest / pytest fixtures)
 
 cd web_target
 npm run lint       # exit 0
@@ -761,9 +762,21 @@ E2E (`*.spec.ts`) is **not counted by the gate** — the gate runs jest only.
   may exist — review automatic verdicts by eye before using them to block.
 - **pytest coverage requires `pytest-cov`.** Without it, measurement fails → the gate rejects
   (by design). The diagnostic message tells you how to install it.
-- The vitest and pytest adapters are **verified by unit checks only** — they have not been driven
-  end to end in a real vitest/pytest project. Only the jest path has real-environment
-  verification (51/51).
+- **Verification depth differs per runner.** A blank in this table means "not attempted",
+  not "probably fine".
+
+  | Layer | jest | vitest | pytest |
+  |---|---|---|---|
+  | Static (config resolution, convention matching, tags, specs, inspect) | CI | CI (fixture) | CI (fixture) |
+  | Runner execution (tests, coverage) | CI (51/51) | measured by hand in a real project | **unverified** |
+
+  The static layer is exercised every push against `verification/fixtures/` —
+  vanilla-js (vitest) and pytest-app (pytest), whose runner, conventions, ID format,
+  language and config location all differ from `web_target`. Building those fixtures
+  surfaced five defects. Until then **every** regression check had been looking at
+  `web_target` alone, which is why none of them caught these five (TS-025 records the
+  count at the time). The layer that actually *runs* a runner needs an install, so only
+  jest is in CI.
 
 ---
 
@@ -775,7 +788,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/023` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/025` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -809,6 +822,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-022 | Two holes detection never reached — sampling was pinned to the top of each file, operators could not touch arrays |
 | TS-023 | I read a surviving mutant as "the test is weak" and almost fixed it — the spec never required it |
 | TS-024 | The same measurement was published four different ways — a number in prose goes silently false when the measuring code changes |
+| TS-025 | Every verification looked at one subject — touching a second project surfaced five defects at once |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

@@ -55,8 +55,18 @@ from harness.project import ProjectConfig, config_for
 #: 앱이 "단일 출처"로 선언한 컬렉션 — 대문자 이름 + 문자열 2개 이상.
 #: 대문자와 2개 이상을 요구하는 이유: 소문자 지역 배열이나 한 개짜리는 '선언'이라기보다
 #: 구현 세부사항이고, 그것까지 세면 보고가 노이즈로 덮인다.
+#:
+#: 두 갈래를 받는다 (TS-025):
+#:   `const PAGES = [...]` / `export const PAGES: string[] = [...]`   JS·TS
+#:   `CURRENCIES = [...]`  (줄 머리, 선언 키워드가 없다)              파이썬
+#: 파이썬 갈래가 없으면 `.py` 가 `_SOURCE_EXTS` 에 **있는데도** 컬렉션이 하나도
+#: 잡히지 않는다 — pytest 프로젝트에서는 독립성 분석이 조용히 아무 일도 안 했다.
+#: 키워드가 없는 쪽은 줄 머리만 받는다. `obj.FOO = [...]` 같은 대입을 선언으로
+#: 오인하지 않기 위해서다.
 _COLLECTION_RE = re.compile(
-    r"(?:export\s+)?(?:const|let|var)\s+([A-Z][A-Z0-9_]*)\s*(?::[^=]+?)?=\s*\[([^\]]*)\]"
+    r"(?:(?:export\s+)?(?:const|let|var)\s+|^[ \t]*)"
+    r"([A-Z][A-Z0-9_]*)\s*(?::[^=\n]+?)?=\s*\[([^\]]*)\]",
+    re.MULTILINE,
 )
 _STRING_LITERAL_RE = re.compile(r"""['"]([^'"\n]{1,120})['"]""")
 
@@ -181,7 +191,6 @@ def declared_collections(project_root: str | Path,
     root = Path(project_root).resolve()
     if cfg is None:
         cfg = config_for(root)
-    test_suffixes = cfg.all_test_suffixes()
 
     out: list[Collection] = []
     seen: set[tuple[str, str]] = set()
@@ -192,7 +201,7 @@ def declared_collections(project_root: str | Path,
         for p in sorted(base.rglob("*")):
             if not p.is_file() or p.suffix not in _SOURCE_EXTS:
                 continue
-            if p.name.endswith(test_suffixes) or "node_modules" in p.parts:
+            if cfg.is_test_file(p.name) or "node_modules" in p.parts:
                 continue
             try:
                 text = p.read_text(encoding="utf-8", errors="replace")
@@ -215,9 +224,18 @@ def declared_collections(project_root: str | Path,
 # ── 자급 판정 ────────────────────────────────────────────────────────────────
 
 def _imports(text: str, name: str) -> bool:
-    """그 이름을 import 했는가 (named / namespace 양쪽)."""
+    """그 이름을 import 했는가 (named / namespace 양쪽).
+
+    JS 의 named import 는 중괄호를 쓰지만 **파이썬은 쓰지 않는다** —
+    `from src.convert import CURRENCIES` 가 중괄호 분기에 걸리지 않아
+    앱의 선언을 제대로 읽는 pytest 테스트가 '자급'으로 보고됐다 (TS-025).
+    """
     if re.search(rf"import\s*\{{[^}}]*\b{re.escape(name)}\b[^}}]*\}}", text):
         return True
+    # 파이썬: `from mod import NAME` / `from mod import (A, NAME)` — 괄호 여닫이까지 본다
+    for m in re.finditer(r"from\s+[\w.]+\s+import\s+(\([^)]*\)|[^\n]*)", text):
+        if re.search(rf"\b{re.escape(name)}\b", m.group(1)):
+            return True
     # `import * as routes` 후 `routes.PROTECTED_PATHS`
     return bool(re.search(rf"\b\w+\.{re.escape(name)}\b", text))
 

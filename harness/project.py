@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+from fnmatch import fnmatch
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -57,12 +58,46 @@ ECOSYSTEM_DEFAULTS: dict[str, dict[str, Any]] = {
         "e2e_suffixes": [".spec.ts", ".spec.tsx", ".e2e.ts"],
         "source_dirs": ["src"],
     },
+    # pytest 의 관례는 **접두사**다. 접미사로만 쓰면 `test_app.py` 가 매칭되지 않는다
+    # (TS-025 에서 실측). 글로브로 적어야 한다 — `tags.matches_pattern` 이 처리한다.
     "pytest": {
-        "unit_suffixes": ["_test.py", "test_.py"],
-        "e2e_suffixes": ["_e2e.py"],
+        "unit_suffixes": ["test_*.py", "*_test.py"],
+        "e2e_suffixes": ["*_e2e.py", "e2e_*.py"],
         "source_dirs": ["src", "."],
     },
 }
+
+
+def matches_pattern(name: str, patterns: tuple[str, ...]) -> bool:
+    """파일명이 규약 중 하나에 맞는가 — 접미사와 글로브를 모두 받는다 (TS-025).
+
+    왜 접미사만으로는 안 되는가 — 실측:
+      pytest 의 관례는 **접두사**다(`test_app.py`). 접미사 비교만 하면
+      `name.endswith("test_.py")` 가 되어 `test_app.py` 가 **테스트로 인식되지 않는다.**
+      그 결과 관례적 이름을 쓰는 pytest 프로젝트에서는 `tagged_test_files` 가 빈
+      목록을 돌려주고 게이트가 모든 기능을 거부한다. 기본값이 그 깨진 값
+      (`"test_.py"`)을 담고 있었고, 검수(`_detect_suffixes`)가 그것을 **생산**했다.
+
+      pytest 경로는 "단위 검증으로만 확인했다"고 README 에 적혀 있었고, 그 단위
+      검증이 `_test.py` 형태만 썼기 때문에 통과했다 — 단일 모양으로 검증하면
+      다른 모양이 존재한다는 사실 자체가 테스트에 없다.
+
+    왜 `project.py` 에 있는가 — 호출자가 넷이고, 그중 셋이 각자 `endswith` 로
+    따로 구현해 **셋 다 pytest 에서 틀렸다** (`independence._declared_collections`,
+    `inspect._source_files`/`_test_files`, `runner._is_source`). 규약 판정은
+    설정의 책임이므로 설정이 사는 이 파일에 둔다. `tags` 는 이것을 재노출한다.
+
+    규칙:
+      `*` 나 `?` 가 있으면 글로브(`test_*.py`), 없으면 접미사(`.test.ts`).
+      접미사 동작을 유지하므로 기존 `.harness.json` 은 그대로 작동한다.
+    """
+    for pat in patterns:
+        if "*" in pat or "?" in pat:
+            if fnmatch(name, pat):
+                return True
+        elif name.endswith(pat):
+            return True
+    return False
 
 
 @dataclass
@@ -123,6 +158,23 @@ class ProjectConfig:
 
     def all_test_suffixes(self) -> tuple[str, ...]:
         return tuple(self.unit_suffixes) + tuple(self.e2e_suffixes)
+
+    def is_test_file(self, name: str) -> bool:
+        """이 파일이 선언된 테스트 규약에 맞는가. **파일명도 경로도 받는다.**
+
+        `name.endswith(cfg.all_test_suffixes())` 를 **직접 쓰지 말 것** — 규약은
+        글로브일 수 있다(`test_*.py`). 그렇게 쓴 세 곳이 pytest 에서 전부
+        틀렸다 (TS-025).
+
+        경로를 받아 파일명만 떼는 이유: 호출자 중 둘은 파일명(`p.name`)을 주고
+        하나(`runner._is_source`)는 커버리지가 뱉은 **경로**(`tests/test_convert.py`)를
+        준다. 접미사 비교는 경로에서도 맞았지만 글로브는 맞지 않는다 —
+        `fnmatch("tests/test_convert.py", "test_*.py")` 는 거짓이다. 정규화를 여기서
+        하면 호출자마다 기억해야 할 규칙이 하나 줄고, 접미사 동작은 바뀌지 않는다
+        (파일명에 대한 `endswith` 결과는 경로에 대한 것과 같다).
+        """
+        base = name.replace("\\", "/").rsplit("/", 1)[-1]
+        return matches_pattern(base, self.all_test_suffixes())
 
     def id_regex(self) -> re.Pattern[str]:
         return re.compile(self.id_pattern)
@@ -363,9 +415,9 @@ def _detect_suffixes(root: Path, runner: str) -> tuple[list[str], list[str], lis
     if runner == "pytest":
         found = []
         if py_test:
-            found.append("test_.py")
+            found.append("test_*.py")        # 접두사 규약 — 글로브로 적는다 (TS-025)
         if counts.get("_test.py"):
-            found.append("_test.py")
+            found.append("*_test.py")
         if not found:
             return [], [], [Finding("unit_suffixes", "(생태계 기본값)", "default",
                                     "테스트 파일을 찾지 못했습니다")]
@@ -566,6 +618,22 @@ def config_for(project_root: str | Path, harness_root: str | Path | None = None
 
     호출자(재현 스크립트의 임시 디렉터리 등)가 명시한 경로를 설정 파일이
     바꿔버리면 검증의 격리가 깨지므로, target 만은 인자가 우선한다.
+
+    해석 순서 (TS-025):
+      1. `<project_root>/.harness.json` — **프로젝트가 자기 규약을 선언한다**
+      2. `<harness_root>/.harness.json` — 하네스의 기본 (이 레포의 배치:
+         명세는 루트, 앱은 web_target/)
+      3. `ProjectConfig()` 기본값
+
+      1번이 없었던 것이 실측된 버그다. `harness_root` 를 `config.BASE_DIR` 로
+      하드코딩해서, 외부 프로젝트를 `--project` 로 지정하면 **이 레포의 설정**이
+      적용됐다 — `main_portfolio` 가 `.harness.json` 에 `runner: vitest` 를 선언했는데
+      `runner=jest` 가 적용되고 런처가 None 이 되어, 게이트가 "jest 를 찾을 수 없다"로
+      전부 거부했다. TS-017 은 `init`/`inspect` 만 시험했고 **게이트 경로는 외부
+      프로젝트에 한 번도 돌려보지 않았다.**
+
+      `web_target` 은 자기 `.harness.json` 이 없으므로 2번으로 떨어진다 —
+      기존 동작은 변하지 않는다.
     """
     if harness_root is None:
         import config as _config
@@ -574,7 +642,10 @@ def config_for(project_root: str | Path, harness_root: str | Path | None = None
     cached = _CFG_CACHE.get(key)
     if cached is not None:
         return cached
-    cfg, _ = load(harness_root, detect_if_missing=False)
+    # 프로젝트 자신의 선언이 하네스의 기본을 이긴다
+    own = Path(key) / CONFIG_NAME
+    source = key if own.is_file() else harness_root
+    cfg, _ = load(source, detect_if_missing=False)
     cfg.target = key
     _CFG_CACHE[key] = cfg
     return cfg
