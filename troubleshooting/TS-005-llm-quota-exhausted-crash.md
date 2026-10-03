@@ -9,6 +9,7 @@ component: harness/llm_errors.py
 tags: [gemini, quota, rate-limit, resilience, exit-code, night-shift]
 guard: `llm_errors.py` 가 쿼터/인증 오류를 런 중단으로 분류한다 (attempt 미소모)
 exposure: paid-path-quota
+resolution: use
 ---
 
 ## Symptoms

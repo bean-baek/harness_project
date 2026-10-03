@@ -9,6 +9,7 @@ component: harness/inspect.py, .github/workflows/ci.yml
 tags: [false-positive, gate, advisory, ci, disabled-gate]
 guard: 검사기에 **선언된 맹점**이 있으면 `advisory`(권고)로 보고하고 차단하지 않는다. `violated`(위반)는 맹점 없는 판정만이며 종료 코드를 올린다
 exposure: advisory-split
+resolution: accept
 ---
 
 ## Symptoms

@@ -144,23 +144,22 @@ def _source_files(root: Path, cfg: ProjectConfig) -> list[Path]:
         base = (root / d).resolve()
         if not base.is_dir():
             continue
-        for p in base.rglob("*"):
-            if not p.is_file() or p.suffix not in SOURCE_EXTS:
-                continue
-            if set(p.parts) & SKIP_DIRS:
-                continue
-            if cfg.is_test_file(p.name):
-                continue
-            out.append(p)
+        for p in project.walk_files(base, SKIP_DIRS, SOURCE_EXTS):
+            if not cfg.is_test_file(p.name):
+                out.append(p)
     return sorted(set(out))
 
 
 def _test_files(root: Path, cfg: ProjectConfig) -> list[Path]:
-    out = [
-        p for p in root.rglob("*")
-        if p.is_file() and cfg.is_test_file(p.name) and not (set(p.parts) & SKIP_DIRS)
-    ]
-    return sorted(set(out))
+    """테스트 파일 전부. **`node_modules` 안으로 내려가지 않는다** (TS-030).
+
+    이전 구현은 `root.rglob("*")` 로 전부 걷고 나서 `SKIP_DIRS` 로 걸렀다.
+    `web_target/node_modules` 항목이 17,721개여서 호출당 1.45초였고, inspect 안에서
+    세 번 불려 4초가 넘었다. 결과는 같고 비용만 줄인다.
+    """
+    return sorted(
+        p for p in project.walk_files(root, SKIP_DIRS) if cfg.is_test_file(p.name)
+    )
 
 
 def _rel(p: Path, root: Path) -> str:

@@ -46,7 +46,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import config
 from harness.project import ProjectConfig, config_for
@@ -65,6 +65,15 @@ class FailureMode:
     guard: str
     exposure_key: str
     doc: str
+    #: 이 실패 모드가 **무엇으로** 해결되는가 (TS-030) — 루프를 끊는 사실 판정이다.
+    #:
+    #:   `build`   도구를 더 만들어야 한다
+    #:   `use`     도구는 됐고 **실제로 써봐야** 한다 (예: pytest 프로젝트에 붙여보기)
+    #:   `accept`  받아들이는 조건이다 (고칠 것이 없다)
+    #:
+    #: `exposed` + `build` 의 개수가 0 이면 **도구를 더 만들 이유가 없다.**
+    #: 임계값이 아니라 개수이고, 선언은 TS 문서의 frontmatter 에만 있다.
+    resolution: str = ""
 
     def short(self, width: int = 62) -> str:
         return self.title if len(self.title) <= width else self.title[:width - 1] + "…"
@@ -85,13 +94,37 @@ class Verdict:
 
 @dataclass
 class Context:
-    """검사기가 보는 것. 한 번만 모아 모든 검사기가 공유한다."""
+    """검사기가 보는 것. 한 번만 모아 모든 검사기가 공유한다.
+
+    비싼 측정은 **접근자로 감싸 한 번만 계산한다** (TS-030). 검사기마다 따로 부르면
+    같은 일을 여러 번 한다 — 실측에서 `deadcode.audit` 이 두 번(각 4초),
+    `inspect_project` 가 한 번(10초) 불렸고 `cli exposure` 가 33초였다.
+    """
 
     root: Path                      # 검사 대상 프로젝트
     harness_root: Path
     cfg: ProjectConfig
     features: list[dict] = field(default_factory=list)
     tag_ids: set[str] = field(default_factory=set)
+    #: 지연 캐시 — 직접 읽지 말고 아래 접근자를 쓸 것
+    _audit: list[Any] | None = field(default=None, repr=False)
+    _report: Any = field(default=None, repr=False)
+
+    def audit(self) -> list[Any]:
+        """하네스 자기 감사 결과 (죽은 설정·고아 코드·미사용 임포트). 한 번만 돈다."""
+        if self._audit is None:
+            from harness import deadcode
+
+            self._audit = deadcode.audit(self.harness_root)
+        return self._audit
+
+    def report(self) -> Any:
+        """프로젝트 검수 결과. 한 번만 돈다."""
+        if self._report is None:
+            from harness import inspect as inspect_mod
+
+            self._report = inspect_mod.inspect_project(self.harness_root)
+        return self._report
 
 
 # ── 문서 읽기 ────────────────────────────────────────────────────────────────
@@ -122,6 +155,7 @@ def load_modes(troubleshooting_dir: str | Path | None = None) -> list[FailureMod
             severity=fields.get("severity", ""),
             guard=fields.get("guard", ""),
             exposure_key=fields.get("exposure", ""),
+            resolution=fields.get("resolution", ""),
             doc=p.name,
         ))
     return out
@@ -207,10 +241,7 @@ def check_test_evidence_gate(ctx: Context) -> tuple[str, str]:
 
 def check_dead_config(ctx: Context) -> tuple[str, str]:
     """TS-007/019 — 선언됐는데 아무도 읽지 않는 설정이 있는가."""
-    from harness import deadcode
-
-    findings = deadcode.audit(ctx.harness_root)
-    dead = [f for f in findings if f.kind == "dead-config"]
+    dead = [f for f in ctx.audit() if f.kind == "dead-config"]
     if dead:
         return "exposed", f"죽은 설정 {len(dead)}건 — `cli deadcode` 로 확인"
     return "protected", "죽은 설정 0건 (`cli deadcode` 가 매 CI 마다 차단한다)"
@@ -310,10 +341,7 @@ def check_tag_targets(ctx: Context) -> tuple[str, str]:
 
 def check_orphan_code(ctx: Context) -> tuple[str, str]:
     """TS-015/019 — 참조가 끊긴 코드가 남아 있는가."""
-    from harness import deadcode
-
-    findings = deadcode.audit(ctx.harness_root)
-    orphans = [f for f in findings if f.kind != "dead-config"]
+    orphans = [f for f in ctx.audit() if f.kind != "dead-config"]
     if orphans:
         return "exposed", f"고아 코드·미사용 임포트 {len(orphans)}건 — `cli deadcode` 로 확인"
     return "protected", "고아 코드 0건"
@@ -396,8 +424,6 @@ def check_published_numbers(ctx: Context) -> tuple[str, str]:
     수 없다. `n/a` 로 적지 않는 이유: 그 실패는 외부 프로젝트에서도 **가능하다.**
     묻지 못한 것을 '발생하지 않는다'로 바꾸면 안 된다 (TS-016).
     """
-    from harness import status
-
     # `config_for` 는 target 을 **넘긴 경로로 덮어쓴다** (TS-025 의 격리 규칙).
     # 그래서 '하네스가 선언한 대상'을 알려면 `load` 를 써야 한다 — `config_for` 로
     # 물으면 항상 자기 자신이 나와 비교가 무의미해진다 (실측으로 확인했다).
@@ -419,10 +445,30 @@ def check_published_numbers(ctx: Context) -> tuple[str, str]:
         )
     if not (ctx.harness_root / "docs" / "status.md").is_file():
         return "exposed", "docs/status.md 가 없다 — 살아 있는 수치를 둘 곳이 없다"
-    agrees, _ = status.check(str(ctx.root), ctx.harness_root)
-    if not agrees:
-        return "exposed", "docs/status.md 가 현재 측정과 어긋난다 — `cli status` 로 재생성할 것"
-    return "protected", "생성 파일이 현재 측정과 일치한다 (`cli status --check` 가 차단한다)"
+
+    # **드리프트를 여기서 재계산하지 않는다** (TS-030).
+    #
+    # 이전 구현은 `status.check()` 를 불렀고, 그것이 `collect()` → **jest 실행 + 검수
+    # + 독립성**을 돌려 호출당 약 25초였다. `diagnose()` 를 여러 번 부르는 검증
+    # 스크립트에서 분 단위로 번졌고 `repro_ts027` 이 타임아웃했다.
+    #
+    # 그리고 **같은 사실을 두 곳에서 계산하는 것**이기도 했다 — `cli status --check`
+    # 와 `repro_ts024` 가 이미 드리프트를 막는다. 두 곳에서 계산하면 둘이 어긋날 수
+    # 있다는 것이 TS-024 의 교훈이다.
+    #
+    # 노출 진단이 물어야 하는 것은 "지금 어긋났는가"가 아니라 **"어긋남을 막는 장치가
+    # 있는가"** 다. 그것은 CI 설정 한 줄을 읽으면 된다.
+    ci = ctx.harness_root / ".github" / "workflows" / "ci.yml"
+    ci_text = ci.read_text(encoding="utf-8") if ci.is_file() else ""
+    if "status --check" not in ci_text:
+        return "exposed", (
+            "생성 파일은 있으나 **CI 가 `cli status --check` 를 돌리지 않는다** — "
+            "측정 코드가 바뀌면 문서가 조용히 거짓이 된다 (TS-024 가 터진 그 모양)"
+        )
+    return "protected", (
+        "살아 있는 수치가 생성 파일에만 있고 CI 가 `cli status --check` 로 드리프트를 "
+        "차단한다 (현재 일치 여부는 그 명령이 판정한다 — 여기서 다시 계산하지 않는다)"
+    )
 
 
 def check_runner_verified(ctx: Context) -> tuple[str, str]:
@@ -512,16 +558,64 @@ def check_draft_quality(ctx: Context) -> tuple[str, str]:
     )
 
 
+def check_language_matrix(ctx: Context) -> tuple[str, str]:
+    """TS-030 — 계층별 지원 차이가 **읽을 수 있게** 드러나 있는가.
+
+    두 가지를 묻는다:
+      1. 모든 런너에 **피험체**(픽스처 또는 주 대상)가 있는가 — 없으면 그 모양은
+         한 번도 검증된 적이 없고, 그 사실이 표에 드러나야 한다 (TS-025).
+      2. 이 프로젝트가 쓰는 런너의 지원 계층이 어디까지인가.
+
+    표 자체는 `docs/status.md` 가 **생성**하고 `cli status --check` 가 드리프트를
+    막는다. 여기서는 그 표가 담을 **사실**을 검사한다.
+    """
+    from harness.status import language_support
+
+    try:
+        rows = language_support(ctx.harness_root)
+    except (OSError, ValueError) as exc:
+        return "unknown", f"지원 현황을 읽지 못했다: {exc}"
+    if not rows:
+        return "unknown", "런너 목록을 읽지 못했다"
+
+    orphan = [r["runner"] for r in rows if not r["subject"]]
+    if orphan:
+        return "exposed", (
+            f"피험체가 없는 런너 {len(orphan)}개: {', '.join(orphan)} — 그 모양은 "
+            "한 번도 검증된 적이 없다. `verification/fixtures/` 에 픽스처를 둘 것 "
+            "(docs/adding-a-language.md)"
+        )
+    mine = next((r for r in rows if r["runner"] == ctx.cfg.runner), None)
+    if mine is None:
+        return "exposed", (
+            f"'{ctx.cfg.runner}' 런너 클래스가 없다 — `harness/runner.py` 에 "
+            "서브클래스를 추가할 것 (docs/adding-a-language.md)"
+        )
+    gaps = [label for label, key in (("CI 실행", "runs_in_ci"), ("초안", "draft"),
+                                     ("컬렉션", "collections"), ("검수", "inspect"))
+            if not mine[key]]
+    if mine["mutation_hits"] == 0:
+        gaps.append("변이(연산자가 이 언어에 0곳 매칭)")
+    if gaps:
+        return "exposed", (
+            f"{ctx.cfg.runner} 는 이 계층이 동작하지 않는다: {', '.join(gaps)}. "
+            "게이트(태그·커버리지)는 돌지만 그 위 칸은 비어 있다 — "
+            "docs/status.md 의 지원 표가 이것을 생성해 싣는다"
+        )
+    return "protected", (
+        f"{ctx.cfg.runner} 는 모든 계층이 동작한다 (변이 {mine['mutation_hits']}곳 매칭). "
+        f"런너 {len(rows)}개 전부 피험체가 있다"
+    )
+
+
 def check_advisory_split(ctx: Context) -> tuple[str, str]:
     """TS-029 — 차단하는 판정에 **맹점 있는 검사**가 섞여 있는가.
 
     맹점 있는 판정을 차단 자리에 놓으면 오탐이 CI 를 영구히 빨간불로 만들고,
     그 압력이 `|| true` 를 낳아 **같은 명령 안의 정확한 판정까지** 꺼진다.
     """
-    from harness import inspect as inspect_mod
-
     try:
-        report = inspect_mod.inspect_project(ctx.harness_root)
+        report = ctx.report()
     except (OSError, ValueError) as exc:
         return "unknown", f"검수를 돌리지 못했다: {exc}"
     blocking = [c for c in report.checks if c.auto and c.verdict == "violated"]
@@ -609,6 +703,7 @@ CHECKS: dict[str, Callable[[Context], tuple[str, str]]] = {
     "exposure-declarations": check_exposure_declarations,
     "draft-quality": check_draft_quality,
     "advisory-split": check_advisory_split,
+    "language-matrix": check_language_matrix,
 }
 
 
@@ -633,6 +728,31 @@ def build_context(project_root: str | Path, harness_root: str | Path) -> Context
                    cfg=cfg, features=features, tag_ids=tag_ids)
 
 
+def validate_declarations(modes: list[FailureMode]) -> tuple[list[str], list[str]]:
+    """선언 자체의 어긋남만 검사한다. (검사기 없는 선언, 선언되지 않은 검사기)
+
+    **`diagnose()` 에서 떼어 냈다** (TS-030). 선언 검증은 frontmatter 를 읽는 일이라
+    밀리초면 끝나는데, `diagnose()` 안에 있으면 검증하려고 **jest·검수·독립성까지**
+    돌려야 했다. 실측에서 `repro_ts027` 이 3분 42초가 됐다.
+
+    테스트가 비싼 경로 없이 이것만 부를 수 있어야 한다 — 그러지 않으면 검증 비용이
+    CI 에서 감당 못 할 수준으로 커지고, 그러면 검증을 줄이는 압력이 생긴다.
+    """
+    missing: list[str] = []
+    for mode in modes:
+        if mode.resolution not in ("build", "use", "accept"):
+            missing.append(
+                f"{mode.ts_id} ({mode.doc}) 의 `resolution:` 이 "
+                f"build/use/accept 중 하나가 아니다 (현재: {mode.resolution!r})")
+        if not mode.exposure_key:
+            missing.append(f"{mode.ts_id} ({mode.doc}) 가 `exposure:` 를 선언하지 않았다")
+        elif mode.exposure_key not in CHECKS:
+            missing.append(
+                f"{mode.ts_id} 가 선언한 `exposure: {mode.exposure_key}` 에 검사기가 없다")
+    declared = {m.exposure_key for m in modes if m.exposure_key}
+    return missing, sorted(set(CHECKS) - declared)
+
+
 def diagnose(project_root: str | Path,
              harness_root: str | Path,
              troubleshooting_dir: str | Path | None = None
@@ -647,19 +767,16 @@ def diagnose(project_root: str | Path,
         위장되는 것을 막는다 (TS-007·019 의 죽은 설정과 같은 구조).
     """
     modes = load_modes(troubleshooting_dir)
+    missing_checks, orphan_checks = validate_declarations(modes)
     ctx = build_context(project_root, harness_root)
 
     verdicts: list[Verdict] = []
-    missing_checks: list[str] = []
     for mode in modes:
         if not mode.exposure_key:
-            missing_checks.append(f"{mode.ts_id} ({mode.doc}) 가 `exposure:` 를 선언하지 않았다")
             verdicts.append(Verdict(mode, "unknown", "노출 조건이 선언되지 않았다"))
             continue
         fn = CHECKS.get(mode.exposure_key)
         if fn is None:
-            missing_checks.append(
-                f"{mode.ts_id} 가 선언한 `exposure: {mode.exposure_key}` 에 검사기가 없다")
             verdicts.append(Verdict(mode, "unknown",
                                     f"검사기 '{mode.exposure_key}' 가 구현되지 않았다"))
             continue
@@ -669,8 +786,6 @@ def diagnose(project_root: str | Path,
             status_, detail = "unknown", f"검사기가 예외를 던졌다: {type(exc).__name__}: {exc}"
         verdicts.append(Verdict(mode, status_, detail))
 
-    declared = {m.exposure_key for m in modes if m.exposure_key}
-    orphan_checks = sorted(set(CHECKS) - declared)
     return verdicts, missing_checks, orphan_checks
 
 
@@ -718,6 +833,23 @@ def render(verdicts: list[Verdict], missing: list[str], orphans: list[str],
             lines.append(f"            {v.detail}")
             if v.mode.guard and group in ("exposed", "unknown"):
                 lines.append(f"            가드: {v.mode.guard}")
+
+    # 루프를 끊는 사실 판정 (TS-030) — 노출된 것 중 **더 만들어야** 하는 것의 수.
+    # 0 이면 도구를 더 만들 이유가 없다. 남은 노출은 써보거나 받아들이는 것이다.
+    by_build = [v for v in verdicts if v.status == "exposed" and v.mode.resolution == "build"]
+    by_use = [v for v in verdicts if v.status == "exposed" and v.mode.resolution == "use"]
+    by_accept = [v for v in verdicts if v.status == "exposed" and v.mode.resolution == "accept"]
+    lines += ["", "  " + "-" * 68, "  노출된 것은 무엇으로 해결되는가"]
+    lines.append(f"    더 만들어야 (build)  {len(by_build)}건"
+                 + ("".join(f"  {v.mode.ts_id}" for v in by_build) if by_build else ""))
+    lines.append(f"    써봐야 (use)         {len(by_use)}건"
+                 + ("".join(f"  {v.mode.ts_id}" for v in by_use) if by_use else ""))
+    lines.append(f"    받아들임 (accept)    {len(by_accept)}건"
+                 + ("".join(f"  {v.mode.ts_id}" for v in by_accept) if by_accept else ""))
+    if not by_build:
+        lines.append("    → **도구를 더 만들 이유가 없다.** 남은 것은 쓰거나 받아들이는 것이다")
+    else:
+        lines.append("    → 아직 만들 것이 남았다 (위 build 항목)")
 
     lines += [
         "",

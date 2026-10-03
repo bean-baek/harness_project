@@ -9,6 +9,7 @@ component: web_target/package.json
 tags: [toolchain, dead-command, path-drift, eslint, vite, playwright]
 guard: CI 가 package.json 이 광고하는 명령을 매 푸시마다 실제로 돌린다
 exposure: declared-commands
+resolution: use
 ---
 
 ## Symptoms

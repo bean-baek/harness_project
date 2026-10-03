@@ -9,6 +9,7 @@ component: harness/tools.py
 tags: [windows, cp949, subprocess, readerthread, utf-8, jest, npm]
 guard: `_run()` 이 encoding='utf-8', errors='replace' 로 받는다
 exposure: console-encoding
+resolution: accept
 ---
 
 ## Symptoms

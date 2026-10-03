@@ -9,6 +9,7 @@ component: harness/runner.py, harness/mutate.py, harness/verify.py
 tags: [mutation, coverage, measurement, published-numbers, regression-of-fix]
 guard: 커버리지 줄 지도로 미실행 줄을 변이 대상에서 제외하고 도달률을 함께 발표한다
 exposure: mutation-line-map
+resolution: accept
 ---
 
 ## Symptoms

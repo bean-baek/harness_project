@@ -9,6 +9,7 @@ component: harness/exposure.py, config.py
 tags: [exposure, diagnosis, dead-guard, dotenv, declared-vs-actual]
 guard: `cli exposure` 가 TS 문서의 `exposure:` 선언을 읽어 대상 프로젝트에 대해 기계로 묻고, 선언과 검사기의 어긋남을 종료 코드 1 로 차단한다
 exposure: exposure-declarations
+resolution: accept
 ---
 
 ## Symptoms

@@ -9,6 +9,7 @@ component: harness/draft.py, harness/inspect.py
 tags: [spec, draft, circularity, declaration, id-collision]
 guard: 초안은 **상태 조건부 선언**에서만 뽑고(검증 지점이 다르다), 코드 위생 규칙은 초안에서 제외하며, 내용이 구현에만 있는 자리는 질문으로 낸다
 exposure: draft-quality
+resolution: accept
 ---
 
 ## Symptoms

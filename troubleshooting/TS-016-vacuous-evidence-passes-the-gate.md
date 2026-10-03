@@ -9,6 +9,7 @@ component: harness/verify.py
 tags: [evidence, coverage, mutation, circularity, gate]
 guard: 증거가 비(非)테스트 소스를 1줄 이상 실행해야 통과한다
 exposure: coverage-gate
+resolution: accept
 ---
 
 ## Symptoms

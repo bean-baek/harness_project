@@ -9,6 +9,7 @@ component: harness/project.py, harness/independence.py, harness/inspect.py, harn
 tags: [verification-design, single-subject, portability, convention, recurrence]
 guard: `verification/fixtures/` 의 외부 모양 픽스처를 CI 가 매 푸시마다 검사한다
 exposure: runner-verified
+resolution: use
 ---
 
 ## Symptoms

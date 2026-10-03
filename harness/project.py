@@ -28,6 +28,7 @@ harness/project.py
 from __future__ import annotations
 
 import json
+import os
 import re
 from fnmatch import fnmatch
 from dataclasses import asdict, dataclass, field
@@ -66,6 +67,30 @@ ECOSYSTEM_DEFAULTS: dict[str, dict[str, Any]] = {
         "source_dirs": ["src", "."],
     },
 }
+
+
+def walk_files(root: str | Path, skip_dirs: frozenset[str] | set[str],
+               suffixes: tuple[str, ...] | None = None) -> list[Path]:
+    """파일을 걷는다. **건너뛸 디렉터리에는 들어가지 않는다** (TS-030).
+
+    `Path.rglob("*")` 은 `node_modules` 와 `.venv` **안까지 전부 걷고 나서** 필터한다.
+    실측: `web_target/node_modules` 에 항목이 **17,721개**이고 걷는 데 1.08초다.
+    `_test_files` 가 inspect 안에서 세 번 불리므로 그것만 4초가 넘었고,
+    `cli exposure` 가 22초, `repro_ts027` 이 3분 13초였다.
+
+    `os.walk` 는 `dirnames` 를 제자리에서 비우면 그 아래로 내려가지 않는다.
+    같은 결과를 내면서 걷는 양이 줄어든다 — 동작이 아니라 **비용**만 바뀐다.
+    """
+    out: list[Path] = []
+    base = Path(root)
+    for dirpath, dirnames, filenames in os.walk(base):
+        # 제자리 수정이 중요하다. 새 리스트를 대입하면 os.walk 가 못 본다.
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        here = Path(dirpath)
+        for name in filenames:
+            if suffixes is None or name.endswith(suffixes):
+                out.append(here / name)
+    return out
 
 
 def matches_pattern(name: str, patterns: tuple[str, ...]) -> bool:

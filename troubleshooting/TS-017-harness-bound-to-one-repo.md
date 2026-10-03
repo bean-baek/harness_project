@@ -9,6 +9,7 @@ component: harness/project.py, harness/runner.py, harness/inspect.py
 tags: [portability, config, runner, invariant, circularity, false-positive]
 guard: `.harness.json` 외부화 + `cli init` 이 검수해 생성한다
 exposure: own-config
+resolution: accept
 ---
 
 ## Symptoms

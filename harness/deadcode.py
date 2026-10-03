@@ -77,10 +77,14 @@ class Finding:
 
 
 def python_files(root: Path) -> list[Path]:
-    return sorted(
-        p for p in Path(root).rglob("*.py")
-        if not (set(p.parts) & SKIP_DIRS)
-    )
+    """감사 대상 `.py`. **`.venv` 안으로 내려가지 않는다** (TS-030).
+
+    `rglob("*.py")` 는 `.venv` 안의 수만 개 파일을 전부 걷고 나서 걸렀다 —
+    `deadcode.audit` 이 5.6초였다. 결과는 같고 비용만 줄인다.
+    """
+    from harness.project import walk_files
+
+    return sorted(walk_files(root, SKIP_DIRS, (".py",)))
 
 
 def _collect(root: Path):

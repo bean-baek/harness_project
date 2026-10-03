@@ -159,9 +159,15 @@ print("\n[7] 선언과 검사기가 어긋나면 종료 코드 1 인가")
 tmp = Path(tempfile.mkdtemp(prefix="harness-ts027-"))
 write(tmp / "TS-900-fake.md", NL.join([
     "---", "id: TS-900", "title: 존재하지 않는 검사기를 선언한다",
-    "severity: low", "guard: 없음", "exposure: 이런-검사기는-없다", "---", "", "본문",
+    "severity: low", "guard: 없음", "exposure: 이런-검사기는-없다",
+    # `resolution` 은 유효한 값을 넣는다 — 여기서 보려는 어긋남은 **검사기 부재**
+    # 하나이고, 두 어긋남이 섞이면 어느 쪽이 보고됐는지 구별할 수 없다.
+    "resolution: accept", "---", "", "본문",
 ]))
-vs, miss2, orph2 = exposure.diagnose("web_target", PROJECT, tmp)
+# 여기서 보려는 것도 선언의 어긋남이다. 판정 목록이 필요한 두 검사만
+# 아래에서 따로 쓴다 — 그 둘을 위해 전체 진단을 한 번만 돌린다.
+miss2, orph2 = exposure.validate_declarations(exposure.load_modes(tmp))
+vs, _m, _o = exposure.diagnose("web_target", PROJECT, tmp)
 check("검사기 없는 선언을 보고한다", len(miss2), 1)
 check("그 판정은 확인불가다", vs[0].status, "unknown")
 check("검사기 이름을 사유에 담는다", "이런-검사기는-없다" in vs[0].detail, True)
@@ -171,6 +177,37 @@ check("고아 검사기도 전부 보고한다 (이 디렉터리는 실제 검�
       len(orph2), len(exposure.CHECKS))
 rendered = exposure.render(vs, miss2, orph2, "web_target")
 check("보고가 어긋남을 **먼저** 알린다", "선언과 검사기가 어긋난다" in rendered, True)
+
+# `resolution` 누락·오타도 같은 자리에서 막는다 (TS-030). 루프를 끊는 판정이
+# 그 선언에 의존하므로, 선언이 없으면 "build 0건"이 믿을 수 없는 값이 된다.
+tmp2 = Path(tempfile.mkdtemp(prefix="harness-ts027-res-"))
+write(tmp2 / "TS-901-nores.md", NL.join([
+    "---", "id: TS-901", "title: resolution 을 선언하지 않는다",
+    "severity: low", "guard: 없음", "exposure: dead-config", "---", "", "본문",
+]))
+#
+# `diagnose()` 가 아니라 `validate_declarations()` 를 부른다 — 선언 검증은
+# frontmatter 를 읽는 일이고, `diagnose()` 를 부르면 jest·검수·독립성까지 돌아
+# 호출당 20초가 든다. 실측에서 이 스크립트가 3분 42초였다 (TS-030).
+miss3, _o3 = exposure.validate_declarations(exposure.load_modes(tmp2))
+check("resolution 미선언을 보고한다",
+      any("resolution" in m for m in miss3), True)
+write(tmp2 / "TS-901-nores.md", NL.join([
+    "---", "id: TS-901", "title: resolution 에 오타가 있다",
+    "severity: low", "guard: 없음", "exposure: dead-config",
+    "resolution: bulid", "---", "", "본문",       # 'build' 오타
+]))
+miss4, _o4 = exposure.validate_declarations(exposure.load_modes(tmp2))
+check("resolution 오타도 보고한다 (세 값 중 하나여야 한다)",
+      any("build/use/accept" in m for m in miss4), True)
+write(tmp2 / "TS-901-nores.md", NL.join([
+    "---", "id: TS-901", "title: 올바른 선언",
+    "severity: low", "guard: 없음", "exposure: dead-config",
+    "resolution: use", "---", "", "본문",
+]))
+miss5, _o5 = exposure.validate_declarations(exposure.load_modes(tmp2))
+check("올바르면 resolution 어긋남이 없다",
+      any("resolution" in m for m in miss5), False)
 check("수치가 불완전하다고 적는다", "위 수치는 불완전하다" in rendered, True)
 
 print("\n[8] CLI — 종료 코드")

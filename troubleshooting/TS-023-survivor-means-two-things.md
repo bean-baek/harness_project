@@ -9,6 +9,7 @@ component: harness/mutate.py
 tags: [mutation, spec, circularity, false-signal, policy]
 guard: `spec_names()` 로 생존을 survived / out-of-spec 으로 나눈다
 exposure: spec-names-members
+resolution: accept
 ---
 
 ## Symptoms

@@ -55,7 +55,8 @@ verification/         회귀 검증 — 실패 모드 하나당 스크립트 하
 troubleshooting/      실패 모드 기록 + evidence/ 1차 자료
 web_target/           피험체 투두 앱 (결과물 아님)
 .harness_memory/      Reflexion 1차 자료 — 재생성 불가, 보존
-docs/ scripts/ .claude/skills/harness/
+docs/                 status.md(생성) + adding-a-language.md(새 언어 절차)
+scripts/ .claude/skills/harness/
 config.py exit_codes.py main.py night_shift.py
 ```
 
@@ -925,6 +926,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-027 | 실패 모드 기록이 전부 터진 뒤에 쓰였다 — 붙이기 전에 노출을 묻는 장치가 없었다 |
 | TS-028 | '명세 초안'이 검수 발견 사항을 기능처럼 포장한 것이었다 — 넷 중 둘은 기능이 아니고 둘은 내용이 없었다 |
 | TS-029 | 오탐이 있는 판정으로 차단하려다 `|| true` 가 붙어 정확한 판정의 차단력까지 잃었다 |
+| TS-030 | 계층별 지원 차이가 보이지 않았고, 도구 만들기를 멈출 사실 판정이 없었다 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

@@ -35,7 +35,7 @@ from pathlib import Path
 PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT))
 
-from harness import deadcode, independence, project, tags
+from harness import deadcode, exposure, independence, project, tags
 from harness import inspect as inspect_mod
 from harness import verify
 
@@ -221,6 +221,86 @@ check("vanilla-js 검수: 명세 기능 2개", report.readiness.spec_features, 2
 check("vanilla-js 검수: ID 형식이 전부 일치", report.readiness.spec_ids_matching, 2)
 check("vanilla-js 검수: 런너 미설치를 막는 사유로 올린다",
       any("런너" in b for b in report.readiness.blockers), True)
+
+print("\n[11] 언어 지원 표가 생성된 것인가 + 피험체 없는 런너가 없는가 (TS-030)")
+# "jest·vitest·pytest 지원" 이라고만 적으면 **계층 차이가 안 보인다.** 실측하면
+# pytest 는 변이 연산자가 0곳 매칭된다 — 증거 사다리의 가장 강한 칸이 비어 있다.
+# 표를 손으로 적으면 계층이 늘 때 조용히 거짓이 되므로(TS-024) 코드에서 읽어 만든다.
+from harness.status import language_support
+
+rows = language_support(PROJECT)
+check("모든 런너가 표에 있다", sorted(r["runner"] for r in rows),
+      ["jest", "pytest", "vitest"])
+# 피험체가 없는 런너 = 한 번도 검증된 적 없는 모양 (TS-025 의 교훈)
+check("피험체가 없는 런너가 없다", [r["runner"] for r in rows if not r["subject"]], [])
+check("게이트는 모든 런너에서 돈다", all(r["gate"] for r in rows), True)
+
+by_name = {r["runner"]: r for r in rows}
+# 계층 차이를 **사실로** 고정한다 — 이 값이 바뀌면 검증이 알려준다
+check("jest 만 CI 가 런너를 실행한다",
+      sorted(r["runner"] for r in rows if r["runs_in_ci"]), ["jest"])
+check("pytest 는 변이 연산자가 0곳 매칭된다 (파이썬에 ===·&& 가 없다)",
+      by_name["pytest"]["mutation_hits"], 0)
+check("jest·vitest 는 변이 연산자가 매칭된다",
+      all(by_name[n]["mutation_hits"] > 0 for n in ("jest", "vitest")), True)
+check("pytest 는 명세 초안 계층이 없다 (.py 는 마크업이 아니다)",
+      by_name["pytest"]["draft"], False)
+check("모든 런너에서 검수·컬렉션 계층은 동작한다",
+      all(r["inspect"] and r["collections"] for r in rows), True)
+
+# 표가 생성 파일에 실려 있고 안내 문서를 가리키는가
+status_md = (PROJECT / "docs" / "status.md").read_text(encoding="utf-8")
+check("생성 파일에 지원 표가 있다", "언어·런너 지원" in status_md, True)
+check("변이 실측 개수를 싣는다", "곳 |" in status_md, True)
+check("새 언어 절차 문서를 가리킨다", "adding-a-language.md" in status_md, True)
+check("절차 문서가 존재한다", (PROJECT / "docs" / "adding-a-language.md").is_file(), True)
+
+print("\n[12] 루프를 끊는 판정 — 선언이 있고 재귀가 없는가 (TS-030)")
+# `build` 가 0 이면 도구를 더 만들 이유가 없다 — 임계값이 아니라 개수다.
+modes = exposure.load_modes()
+bad = [m.ts_id for m in modes if m.resolution not in ("build", "use", "accept")]
+check("모든 실패 모드가 resolution 을 선언한다", bad, [])
+check("resolution 값이 세 가지뿐이다",
+      sorted({m.resolution for m in modes}) == sorted(set(["build", "use", "accept"])
+                                                      & {m.resolution for m in modes}), True)
+# 생성 파일이 다른 진단을 호출하면 무한 재귀가 된다 — 실제로 만들었다가 지웠다
+status_src = (PROJECT / "harness" / "status.py").read_text(encoding="utf-8")
+check("status.collect 이 exposure.diagnose 를 부르지 않는다",
+      "from harness.exposure import diagnose" in status_src, False)
+check("그 사실을 주석으로 남겼다", "무한 재귀" in status_src, True)
+
+print("\n[13] 걷기를 자르는가 — 동작은 같고 비용만 줄었는가 (TS-030)")
+# `rglob` 은 node_modules·.venv 안까지 전부 걷고 나서 걸렀다. 결과가 **같아야** 한다 —
+# 비용만 바뀌는 수정이므로 같지 않으면 그것이 결함이다.
+import tempfile
+
+work = Path(tempfile.mkdtemp(prefix="harness-ts030-walk-"))
+(work / "src").mkdir(parents=True)
+(work / "node_modules" / "pkg").mkdir(parents=True)
+(work / ".venv" / "lib").mkdir(parents=True)
+(work / "src" / "a.ts").write_text("x", encoding="utf-8")
+(work / "src" / "b.py").write_text("x", encoding="utf-8")
+(work / "node_modules" / "pkg" / "evil.ts").write_text("x", encoding="utf-8")
+(work / ".venv" / "lib" / "evil.py").write_text("x", encoding="utf-8")
+
+got = {p.name for p in project.walk_files(work, project.SKIP_DIRS)}
+check("건너뛸 디렉터리 안의 파일을 돌려주지 않는다", got, {"a.ts", "b.py"})
+# 같은 입력에서 옛 방식(rglob + 필터)과 **결과가 같은가**
+old_way = {p.name for p in work.rglob("*")
+           if p.is_file() and not (set(p.parts) & project.SKIP_DIRS)}
+check("옛 방식(rglob+필터)과 결과가 같다", got, old_way)
+check("확장자 필터가 동작한다",
+      {p.name for p in project.walk_files(work, project.SKIP_DIRS, (".py",))}, {"b.py"})
+check("빈 skip 집합이면 전부 돌려준다",
+      len(project.walk_files(work, frozenset())), 4)
+# 실제로 **내려가지 않는지** — 들어갔다면 그 안의 파일이 보일 것이다
+check("node_modules 안으로 내려가지 않는다", "evil.ts" in got, False)
+check("`.venv` 안으로 내려가지 않는다", "evil.py" in got, False)
+
+# 실제 레포에서 결과가 보존되는가 (건수가 바뀌면 동작이 바뀐 것이다)
+check("deadcode 감사 대상 .py 가 42개 이상 (범위 보존)",
+      len(deadcode.python_files(PROJECT)) >= 42, True)
+check("deadcode 가 여전히 0건", len(deadcode.audit(PROJECT)), 0)
 
 print(f"\n{'='*60}")
 print(f"TS-025 검증 결과: PASS {ok} / FAIL {fail}")

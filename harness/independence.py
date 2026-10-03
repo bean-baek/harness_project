@@ -50,7 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from harness.project import ProjectConfig, config_for
+from harness.project import SKIP_DIRS, ProjectConfig, config_for, walk_files
 
 #: 앱이 "단일 출처"로 선언한 컬렉션 — 대문자 이름 + 문자열 2개 이상.
 #: 대문자와 2개 이상을 요구하는 이유: 소문자 지역 배열이나 한 개짜리는 '선언'이라기보다
@@ -198,10 +198,8 @@ def declared_collections(project_root: str | Path,
         base = (root / d).resolve()
         if not base.is_dir():
             continue
-        for p in sorted(base.rglob("*")):
-            if not p.is_file() or p.suffix not in _SOURCE_EXTS:
-                continue
-            if cfg.is_test_file(p.name) or "node_modules" in p.parts:
+        for p in sorted(walk_files(base, SKIP_DIRS, _SOURCE_EXTS)):
+            if cfg.is_test_file(p.name):
                 continue
             try:
                 text = p.read_text(encoding="utf-8", errors="replace")

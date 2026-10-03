@@ -9,6 +9,7 @@ component: harness/mutate.py, harness/verify.py
 tags: [mutation, operator, syntax, gate, benchmark, measurement]
 guard: 변이 후 정적 검사로 유효성을 확인하고 공백 요구로 JSX·제네릭을 제외한다
 exposure: mutation-validity
+resolution: accept
 ---
 
 ## Symptoms

@@ -9,6 +9,7 @@ component: harness/router.py
 tags: [langgraph, react, gemini, silent-abort, exit-code]
 guard: 라우터가 도구 호출 없는 응답을 실패로 분류한다 + repro_ts018 스모크
 exposure: paid-path-exit
+resolution: use
 ---
 
 ## Symptoms

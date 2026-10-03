@@ -55,7 +55,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from harness.project import SKIP_DIRS, ProjectConfig
+from harness.project import SKIP_DIRS, ProjectConfig, walk_files
 
 #: 선언을 찾는 확장자 — 마크업이 들어 있는 것만
 MARKUP_EXTS = (".tsx", ".jsx", ".vue", ".svelte", ".html")
@@ -320,10 +320,8 @@ def extract_declarations(project_root: str | Path,
         base = (root / d).resolve()
         if not base.is_dir():
             continue
-        for p in sorted(base.rglob("*")):
-            if not p.is_file() or p.suffix not in MARKUP_EXTS:
-                continue
-            if set(p.parts) & SKIP_DIRS or cfg.is_test_file(p.name):
+        for p in sorted(walk_files(base, SKIP_DIRS, MARKUP_EXTS)):
+            if cfg.is_test_file(p.name):
                 continue
             try:
                 text = p.read_text(encoding="utf-8", errors="replace")

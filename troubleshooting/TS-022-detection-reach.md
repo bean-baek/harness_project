@@ -9,6 +9,7 @@ component: harness/mutate.py
 tags: [mutation, sampling, bias, operator, collection, detection-power]
 guard: `select_spread()` 가 후보를 전부 모아 등간격으로 뽑고 표본 크기를 출력한다
 exposure: mutation-reach
+resolution: accept
 ---
 
 ## Symptoms

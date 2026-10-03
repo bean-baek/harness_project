@@ -833,6 +833,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-027 | Every failure mode was recorded after the fact — nothing asked which ones a project is exposed to before attaching |
 | TS-028 | The "spec draft" was inspection findings dressed as features — two of four were not features and two had no content |
 | TS-029 | A check with known blind spots sat in the blocking slot, so `|| true` was added — and that disabled the accurate checks along with it |
+| TS-030 | Per-layer support gaps were invisible, and there was no factual rule for when to stop building the instrument |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

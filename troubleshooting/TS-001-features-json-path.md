@@ -9,6 +9,7 @@ component: night_shift.py
 tags: [cwd, path-resolution, silent-failure]
 guard: `features_path()` 가 cwd 가 아니라 프로젝트 루트에서 해소한다
 exposure: spec-path
+resolution: accept
 ---
 
 ## Symptoms

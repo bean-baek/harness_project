@@ -9,6 +9,7 @@ component: night_shift.py
 tags: [windows, cp949, pythonioencoding, subprocess]
 guard: PYTHONIOENCODING=utf-8 + 하네스 출력에 이모지를 쓰지 않는다
 exposure: console-encoding
+resolution: accept
 ---
 
 ## Symptoms

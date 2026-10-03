@@ -38,6 +38,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from harness.project import load
+
 #: 생성 파일 경로 (하네스 루트 기준)
 STATUS_PATH = "docs/status.md"
 
@@ -116,7 +118,88 @@ def collect(project_root: str, harness_root: str | Path = ".") -> dict[str, Any]
         (Path(harness_root) / "troubleshooting").glob("TS-*.md")
     ))
 
+    out["languages"] = language_support(harness_root)
+
     return out
+
+
+def language_support(harness_root: str | Path) -> list[dict[str, Any]]:
+    """런너별로 **어느 계층이 실제로 동작하는가** — 코드에서 읽는다.
+
+    손으로 적으면 계층이 늘 때 조용히 거짓이 된다 (TS-024). 그래서 표를 쓰지 않고
+    `RUNNERS`·픽스처·CI·연산자 표를 **읽어서** 만든다.
+
+    왜 이 표가 필요한가 (TS-025·TS-030): "모든 프로젝트에 붙는다"는 주장이 두 번째
+    프로젝트에서 깨졌다. 계층별로 묶인 정도가 다르다 — 게이트는 런너만 있으면 돌고,
+    돌연변이는 언어의 문법을 알아야 한다. 그 차이를 읽는 사람이 알 수 없었다.
+    """
+    import json
+
+    from harness import draft, independence, mutate
+    from harness import inspect as inspect_mod
+    from harness.runner import RUNNERS
+
+    root = Path(harness_root)
+
+    # 픽스처가 선언한 런너 — 정적 계층이 검증된 모양이다
+    fixtures: dict[str, str] = {}
+    fx_dir = root / "verification" / "fixtures"
+    if fx_dir.is_dir():
+        for p in sorted(fx_dir.glob("*/.harness.json")):
+            try:
+                fixtures[json.loads(p.read_text(encoding="utf-8")).get("runner", "")] = p.parent.name
+            except (json.JSONDecodeError, OSError):
+                continue
+    # 주 피험체가 쓰는 런너 (픽스처가 아니라 실제 앱)
+    try:
+        own, _ = load(root, detect_if_missing=False)
+        subject_runner = own.runner
+        subject_name = Path(own.target).name or "target"
+    except (OSError, ValueError):
+        subject_runner, subject_name = "", ""
+
+    # CI 가 런너를 **실제로 실행**하는가
+    ci = root / ".github" / "workflows" / "ci.yml"
+    ci_text = ci.read_text(encoding="utf-8") if ci.is_file() else ""
+
+    # 변이 연산자가 그 언어 문법에 매칭되는가 — 실측한다 (추측하지 않는다)
+    probes = {
+        "jest": "if (a === b && c) { return true; }",
+        "vitest": "if (a === b && c) { return true; }",
+        "pytest": "if a == b and c:\n    return True\n",
+    }
+
+    out: list[dict[str, Any]] = []
+    for name in sorted(RUNNERS):
+        probe = probes.get(name, "")
+        hits = sum(len(mutate._candidate_lines(probe, pat))
+                   for _rule, pat, _rep in mutate.MUTATIONS) if probe else 0
+        exts = {"jest": ".tsx", "vitest": ".jsx", "pytest": ".py"}.get(name, "")
+        out.append({
+            "runner": name,
+            "subject": (subject_name if name == subject_runner
+                        else fixtures.get(name, "")),
+            "gate": True,                                   # 런너 클래스가 있으면 돈다
+            "runs_in_ci": f"npx {name}" in ci_text,
+            "draft": exts in draft.MARKUP_EXTS,
+            "collections": exts in independence._SOURCE_EXTS,
+            "inspect": exts in inspect_mod.SOURCE_EXTS,
+            "mutation_hits": hits,
+        })
+    return out
+
+
+# `unresolved_by_building()` 은 **만들었다가 지웠다** (TS-030).
+#
+# `status.collect` 에서 `exposure.diagnose` 를 부르면 그 안의
+# `check_published_numbers` 가 다시 `status.check` → `collect` 를 불러 **무한 재귀**가
+# 된다. 루프를 끊는 규칙을 만들면서 루프를 만든 것이고, 그게 이 결함의 기록이다.
+#
+# 그리고 중복이기도 했다 — `cli exposure` 의 출력이 이미 build/use/accept 를 센다.
+# 같은 사실을 두 곳에서 계산하면 둘이 어긋날 수 있다(TS-024 의 모양). 한 곳에만 둔다.
+#
+# 교훈: 생성 파일은 **싼 측정만** 담는다. 다른 진단을 호출하는 측정은 생성 파일에
+# 넣지 않는다 — 비용도 모르고 순환도 보이지 않는다.
 
 
 def render(data: dict[str, Any]) -> str:
@@ -160,6 +243,28 @@ def render(data: dict[str, Any]) -> str:
     for kind, label in (("dead-config", "죽은 설정"), ("orphan", "고아 코드"),
                         ("unused-import", "미사용 임포트")):
         lines.append(f"| {label} | {dead.get(kind, 0)} |")
+
+    # 언어 지원 — **손으로 적지 않는다.** 계층이 늘면 표가 조용히 거짓이 된다 (TS-024).
+    langs = data.get("languages") or []
+    if langs:
+        lines += ["", "## 언어·런너 지원 (TS-030)", "",
+                  "계층별로 묶인 정도가 다르다. 게이트는 런너 클래스 하나로 돌고,",
+                  "돌연변이는 그 언어의 문법을 알아야 한다. 이 표는 코드에서 읽은 것이다.", "",
+                  "| 런너 | 피험체 | 게이트 | CI 실행 | 검수 | 컬렉션 | 초안 | 변이 |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for r in langs:
+            mark = {True: "O", False: "—"}
+            lines.append(
+                f"| {r['runner']} | {r['subject'] or '없음'} | {mark[r['gate']]} "
+                f"| {mark[r['runs_in_ci']]} | {mark[r['inspect']]} "
+                f"| {mark[r['collections']]} | {mark[r['draft']]} "
+                f"| {r['mutation_hits']}곳 |"
+            )
+        lines += ["",
+                  "`변이` 는 그 언어의 대표 구문 한 줄에 연산자가 매칭되는 **실측 개수**다.",
+                  "0 이면 돌연변이 측정이 그 언어에서 아무것도 하지 않는다.",
+                  "새 언어를 붙이는 절차: [docs/adding-a-language.md](adding-a-language.md)"]
+
 
     lines += [
         "",
