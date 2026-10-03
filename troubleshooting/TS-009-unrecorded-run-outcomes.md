@@ -7,6 +7,8 @@ severity: medium
 status: resolved
 component: night_shift.py
 tags: [observability, metrics, measurement, discrimination, ab-test]
+guard: `verify`/`mark`/`unmark` 가 판정마다 harness_runtime.log 에 기록한다
+exposure: run-logging
 ---
 
 ## Symptoms

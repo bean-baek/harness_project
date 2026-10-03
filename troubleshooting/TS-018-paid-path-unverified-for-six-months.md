@@ -7,6 +7,8 @@ severity: high
 status: resolved
 component: harness/router.py, harness/nodes/agents.py, repro_ts018.py
 tags: [coverage, dead-code, reflexion, smoke-test, i18n, observability]
+guard: repro_ts018 이 LLM 을 스텁으로 바꿔 그래프를 끝까지 돌린다 (토큰 0)
+exposure: paid-path-smoke
 ---
 
 ## Symptoms

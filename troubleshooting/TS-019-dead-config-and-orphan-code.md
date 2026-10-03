@@ -7,6 +7,8 @@ severity: medium
 status: resolved
 component: harness/deadcode.py, harness/router.py, config.py
 tags: [dead-config, orphan-code, self-audit, recurrence, static-analysis]
+guard: `cli deadcode` 세 검사(죽은 설정·고아 코드·미사용 임포트)를 CI 가 차단한다
+exposure: dead-config
 ---
 
 ## Symptoms

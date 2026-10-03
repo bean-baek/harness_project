@@ -13,7 +13,15 @@ from pathlib import Path
 # API 키가 필요 없으므로 langchain·dotenv 없이도 동작해야 한다.
 try:
     from dotenv import load_dotenv
-    load_dotenv(override=True)
+    # `override=False` 가 중요하다 (TS-027). `override=True` 였을 때 `.env` 가
+    # **실제 환경 변수를 이겼다.** CI 와 문서는 `GOOGLE_API_KEY=""` 로 토큰 없는
+    # 경로를 '강제한다'고 선언하는데, `.env` 가 있는 로컬에서는 그 선언이 아무
+    # 일도 하지 않았다 — 선언된 가드가 죽어 있는 TS-007·TS-019 와 같은 모양이다.
+    # CI 에서는 `.env` 가 없어서(gitignore) 우연히 동작하고 있었다.
+    #
+    # 이제 명시적으로 설정된 환경 변수가 이긴다. 빈 문자열도 '설정됨'이므로
+    # `GOOGLE_API_KEY=""` 는 실제로 키를 비운다. `.env` 는 **빈 칸만 채운다.**
+    load_dotenv(override=False)
 except ImportError:                     # pragma: no cover
     def load_dotenv(*_args, **_kwargs):  # type: ignore[misc]
         return False

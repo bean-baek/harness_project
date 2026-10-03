@@ -119,6 +119,7 @@ python -m harness.cli inspect        # 객관 지표 추출 + 의도가 필요�
 python -m harness.cli deadcode       # 하네스 자기 감사 — 죽은 설정·고아 코드 (TS-019)
 python -m harness.cli independence   # 증거 독립성 — 테스트가 구조를 자급하는가 (TS-020)
 python -m harness.cli status         # 살아 있는 측정값을 docs/status.md 로 생성 (TS-024)
+python -m harness.cli exposure       # 이 프로젝트가 어떤 실패 모드에 노출됐는지 (TS-027)
 ```
 
 `verify` / `mark` / `unmark` 는 판정마다 `harness_runtime.log` 에 기록을 남긴다
@@ -498,6 +499,61 @@ ProtectedRoute.test.tsx  import 없음 + '/', '/dashboard'  → 자급
 `hard-coded` 로 분류되어 등급을 내리지 않는다. 그걸 잡으려면 리터럴의 **구문 위치**를
 봐야 하고 그것은 라우팅 전용 휴리스틱이 되어 생태계 중립성을 깬다.
 
+### 4.6 붙이기 전에 묻는다 — 노출 진단 (TS-027)
+
+```bash
+python -m harness.cli exposure --project ./my-app
+```
+
+기록된 실패 모드는 전부 **터진 뒤에** 쓰였다. 기록은 재발을 막지만, 하네스를 새
+프로젝트에 붙이는 사람에게는 **산문 더미**이고 "내 프로젝트에 해당되는 것이 무엇인가"는
+손으로 판단해야 했다. TS-025 가 그 판단이 틀린다는 증거다 — 두 번째 프로젝트에서
+결함 5개가 나왔고 넷은 `web_target` 에서 증상이 없는 것이었다.
+
+**문서가 선언하고 코드가 검사한다.** 노출 조건을 파이썬에 적으면 문서와 코드가 두 개의
+진실이 되고, 그것이 TS-007·019 가 두 번 반복한 죽은 설정이다. 선언은 TS 문서의
+frontmatter 에만 둔다.
+
+```yaml
+guard: `cli deadcode` 가 참조 0건 설정을 CI 에서 차단한다
+exposure: dead-config
+```
+
+**양방향으로 강제한다** — 선언된 키에 검사기가 없거나, 검사기가 있는데 아무 문서도
+선언하지 않으면(고아 검사기) 종료 코드 1 이다. 락파일 검사와 같은 모양이라 오탐이
+구조적으로 불가능하다. 실제로 첫 실행이 고아 검사기 1건을 잡았다.
+
+판정은 네 가지이고 **점수가 없다**:
+
+| | |
+|---|---|
+| `보호됨` | 노출 조건이 있고 가드가 작동한다 |
+| `노출` | 노출 조건이 있고 가드가 없거나 꺼져 있다 |
+| `해당없음` | 그 실패가 가능한 모양이 아니다 |
+| `확인불가` | 기계로 물을 수 없다 — 사람이 봐야 한다 |
+
+`확인불가` 를 `해당없음` 으로 합치지 않는다. "묻지 못했다"를 "해당 없다"로 적으면
+측정 실패가 안전으로 위장된다 (TS-016 의 규칙).
+
+**노출 건수로는 차단하지 않는다.** 노출은 결함이 아니라 조건이다 — `.harness.json` 이
+없는 프로젝트는 노출이지만 그것이 잘못은 아니고, 알고 쓰면 된다. 건수로 차단하면
+"0건을 만들기 위해 진단을 끄는" 압력이 생긴다. 차단하는 것은 **선언과 검사기의
+어긋남**뿐이고 그것은 조건이 아니라 사실 오류다.
+
+모양마다 다른 진단이 나온다 — 그게 목적이다. 갈리는 항목의 예:
+
+```
+TS-021  typecheck 커맨드가 없으면 노출 — 구문을 파괴한 변이가 '테스트가 잡았다'로
+        계수되어 돌연변이 점수가 과대평가된다 (픽스처 둘 다 노출)
+TS-025  런너 실행 계층을 CI 가 돌리는 것은 jest 뿐 — vitest·pytest 는 노출
+TS-006  런너가 설치되지 않으면 노출 — 게이트가 켜져 있어도 모든 기능을 거부한다
+```
+
+진단기를 만드는 것 자체가 검사였다. 세 결함이 나왔고 그중 하나가 **죽은 가드의 세 번째
+사례**다 — `load_dotenv(override=True)` 때문에 `.env` 가 실제 환경 변수를 이겼고, CI 와
+README 가 "`GOOGLE_API_KEY=""` 로 강제한다"고 선언한 것이 `.env` 가 있는 로컬에서
+**아무 일도 하지 않았다.** 현재 값은 `cli exposure` 로 직접 확인한다.
+
 ---
 
 ## 5. 유료 API 모드
@@ -711,6 +767,7 @@ python verification/repro_ts023.py   # 생존의 의미를 명세로 가린다
 python verification/repro_ts024.py   # 발표된 수치의 드리프트 차단
 python verification/repro_ts025.py   # 외부 프로젝트 모양 (vitest·pytest 픽스처)
 python verification/repro_ts026.py   # 미실행 줄 변이 차단 + 도달률
+python verification/repro_ts027.py   # 노출 진단 (선언 ↔ 검사기)
 
 cd web_target
 npm run lint       # exit 0
@@ -775,7 +832,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 
 | 잡 | 내용 |
 |---|---|
-| `하네스 검증` | `verification/repro_ts005/…/026` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `하네스 검증` | `verification/repro_ts005/…/027` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
@@ -811,6 +868,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-024 | 같은 측정값을 네 번 다르게 발표했다 — 산문의 수치는 측정 코드가 바뀌면 조용히 거짓이 된다 |
 | TS-025 | 모든 검증이 피험체 한 명을 봤다 — 두 번째 프로젝트에 닿자 결함 5개가 동시에 드러났다 |
 | TS-026 | 증거가 지나가지 않는 줄에 결함을 심고 그 생존을 증거의 구멍으로 셌다 — 발표된 점수 네 개가 전부 틀렸다 |
+| TS-027 | 실패 모드 기록이 전부 터진 뒤에 쓰였다 — 붙이기 전에 노출을 묻는 장치가 없었다 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

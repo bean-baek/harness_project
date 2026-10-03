@@ -26,7 +26,7 @@ python verification/repro_ts005.py
 | `repro_ts024.py` | 발표된 수치의 드리프트 차단 |
 | `repro_ts025.py` | 외부 프로젝트 모양 — `fixtures/` 의 vitest·pytest 픽스처 |
 | `repro_ts026.py` | 미실행 줄 변이 차단 + 점수와 도달률의 분리 |
-| `repro_ts026.py` | 미실행 줄 변이 차단 + 점수와 도달률의 분리 |
+| `repro_ts027.py` | 노출 진단 — 문서 선언 ↔ 검사기 양방향 강제 |
 
 **건수를 적지 않는다 (TS-024).** 스크립트가 바뀌면 이 표의 숫자가 조용히 거짓이 된다 —
 같은 종류의 드리프트로 README 가 같은 측정값을 네 번 다르게 발표한 적이 있다.
@@ -77,8 +77,14 @@ CI 도 루트에서 실행한다.
 
 트러블슈팅 문서(`troubleshooting/TS-0XX-*.md`)와 **쌍으로** 만든다.
 문서는 무엇이 왜 깨졌는지, 스크립트는 그것이 다시 깨지지 않는지를 담는다.
-추가 후 세 곳을 갱신한다.
+추가 후 네 곳을 갱신한다.
 
 1. `.github/workflows/ci.yml` — 실행 단계
-2. `README.md` / `README_EN.md` — §10 회귀 검증 목록과 검증 건수
+2. `README.md` / `README_EN.md` — §10 회귀 검증 목록
 3. 이 파일의 표
+4. **TS 문서의 frontmatter 에 `guard:` 와 `exposure:`** (TS-027)
+
+4번은 잊어도 된다 — `cli exposure` 가 선언 누락과 고아 검사기를 **종료 코드 1 로
+차단**하므로 CI 가 알려준다. 검사기는 `harness/exposure.py` 의 `CHECKS` 에 넣는다.
+기계로 물을 수 없는 조건이면 그렇게 적는 검사기를 쓴다 — `n/a` 가 아니라 `unknown`
+이다. 묻지 못한 것을 '해당 없음'으로 적으면 측정 실패가 안전으로 위장된다.

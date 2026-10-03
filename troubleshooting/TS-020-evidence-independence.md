@@ -7,6 +7,8 @@ severity: high
 status: resolved
 component: harness/independence.py
 tags: [evidence, independence, circularity, channel, static-analysis, policy]
+guard: `cli independence` 가 채널 수와 자급을 등급으로 보고한다
+exposure: evidence-independence
 ---
 
 ## Symptoms

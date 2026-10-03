@@ -7,6 +7,8 @@ severity: high
 status: resolved
 component: harness/verify.py
 tags: [evidence, objectivity, spec-test-linkage, jest, rootdir, audit]
+guard: 게이트가 기능 ID 를 인용하는 **통과** 테스트를 요구한다 (수준 feature)
+exposure: evidence-level
 ---
 
 ## Symptoms

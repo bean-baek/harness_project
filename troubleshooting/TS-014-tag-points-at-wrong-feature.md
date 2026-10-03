@@ -7,6 +7,8 @@ severity: high
 status: resolved
 component: harness/tags.py
 tags: [evidence, tag-lint, scope, subject-vs-harness, e2e]
+guard: `cli tags` 가 명세에 없는 ID 를 가리키는 태그를 CI 에서 차단한다
+exposure: tag-targets
 ---
 
 ## Symptoms

@@ -123,6 +123,7 @@ python -m harness.cli inspect        # extract objective metrics, separate what 
 python -m harness.cli deadcode       # self-audit — dead config, orphan code (TS-019)
 python -m harness.cli independence   # evidence independence — does a test supply its own structure (TS-020)
 python -m harness.cli status         # generate live measurements into docs/status.md (TS-024)
+python -m harness.cli exposure       # which failure modes this project is exposed to (TS-027)
 ```
 
 `verify` / `mark` / `unmark` append a record to `harness_runtime.log` on every verdict
@@ -722,6 +723,7 @@ python verification/repro_ts023.py   # what a surviving mutant means (spec-aware
 python verification/repro_ts024.py   # blocks drift in published numbers
 python verification/repro_ts025.py   # foreign project shapes (vitest / pytest fixtures)
 python verification/repro_ts026.py   # no mutation on unexecuted lines + reach reporting
+python verification/repro_ts027.py   # exposure diagnosis (declaration <-> checker)
 
 cd web_target
 npm run lint       # exit 0
@@ -789,7 +791,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/026` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/027` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -825,6 +827,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-024 | The same measurement was published four different ways — a number in prose goes silently false when the measuring code changes |
 | TS-025 | Every verification looked at one subject — touching a second project surfaced five defects at once |
 | TS-026 | Faults were planted on lines the evidence never reaches, and their survival was counted as an evidence gap — all four published scores were wrong |
+| TS-027 | Every failure mode was recorded after the fact — nothing asked which ones a project is exposed to before attaching |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

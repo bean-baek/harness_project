@@ -7,6 +7,8 @@ severity: high
 status: resolved
 component: harness/status.py
 tags: [documentation, drift, dead-config, recurrence, generated-file]
+guard: `cli status` 생성 파일 + `--check` 드리프트 차단 + README 수치 가드
+exposure: published-numbers
 ---
 
 ## Symptoms

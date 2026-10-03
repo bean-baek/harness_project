@@ -7,6 +7,8 @@ severity: high
 status: resolved
 component: harness/tools.py
 tags: [self-grading, test-evidence, windows, npx, jest, drift, duplication]
+guard: `mark` 가 도구로 스위트를 직접 실행하고 통과 테스트를 요구한다
+exposure: test-evidence-gate
 ---
 
 ## Symptoms

@@ -7,6 +7,8 @@ severity: medium
 status: resolved
 component: harness/cli.py
 tags: [measurement, tokenless, mode-switch, ci, gate-outcome]
+guard: `cli deadcode` 가 참조 끊긴 함수·클래스를 CI 에서 차단한다
+exposure: orphan-code
 ---
 
 ## Symptoms

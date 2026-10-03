@@ -439,6 +439,29 @@ def cmd_independence(args) -> int:
     return 0
 
 
+def cmd_exposure(args) -> int:
+    """기록된 실패 모드를 **이 프로젝트에 대해** 묻는다 (TS-027).
+
+    종료 코드:
+      0  문서와 검사기가 일치한다 (노출 건수는 종료 코드에 영향을 주지 않는다)
+      1  **선언과 검사기가 어긋난다** — 보고 자체가 불완전하다
+
+    왜 '노출 n건'으로 차단하지 않는가: 노출은 결함이 아니라 **조건**이다.
+    `.harness.json` 이 없는 프로젝트는 노출이지만 그것이 잘못은 아니다 — 알고
+    쓰면 된다. 차단하면 "노출 0건을 만들기 위해" 진단을 끄는 압력이 생긴다.
+
+    반대로 **선언과 검사기의 어긋남은 차단한다.** 그것은 조건이 아니라 사실
+    오류이고, 어긋난 채로는 "노출 0건"이 믿을 수 없는 값이 된다 (TS-007·019 의
+    죽은 설정과 같은 구조이므로 같은 처방을 쓴다).
+    """
+    from harness.exposure import diagnose, render
+
+    verdicts, missing, orphans = diagnose(
+        args.project, args.harness_root, args.troubleshooting or None)
+    print(render(verdicts, missing, orphans, args.project, show_all=args.all))
+    return 1 if (missing or orphans) else 0
+
+
 def cmd_deadcode(args) -> int:
     """하네스 자신을 감사한다 — 죽은 설정·고아 코드·미사용 임포트 (TS-019).
 
@@ -572,6 +595,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("independence", parents=[common],
                        help="증거 독립성 — 테스트가 검증 대상 구조를 자기가 공급하는지 (보고만)")
     p.set_defaults(func=cmd_independence)
+
+    p = sub.add_parser("exposure", parents=[common],
+                       help="이 프로젝트가 어떤 실패 모드에 노출돼 있는지 — 터지기 전에 묻는다")
+    p.add_argument("--harness-root", default=".", dest="harness_root")
+    p.add_argument("--troubleshooting", default="",
+                   help="TS 문서 디렉터리 (기본: 하네스의 troubleshooting/)")
+    p.add_argument("--all", action="store_true",
+                   help="보호됨·해당없음 항목까지 전부 출력")
+    p.set_defaults(func=cmd_exposure)
 
     p = sub.add_parser("deadcode", help="하네스 자기 감사 — 죽은 설정·고아 코드·미사용 임포트")
     p.add_argument("--harness-root", default=".", dest="harness_root")

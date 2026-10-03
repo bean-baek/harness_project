@@ -7,6 +7,8 @@ severity: medium
 status: resolved
 component: main.py
 tags: [langgraph, checkpointer, persistence, human-in-the-loop, resume]
+guard: `cli deadcode` 가 참조 0건 설정을 CI 에서 차단한다
+exposure: dead-config
 ---
 
 ## Symptoms

@@ -7,6 +7,8 @@ severity: high
 status: resolved
 component: web_target/src/components/ProtectedRoute.tsx
 tags: [auth, race-condition, open-redirect, security, f-005]
+guard: 피험체 결함 — E2E 가 잡았다. 하네스의 가드 대상이 아니다
+exposure: target-app-defect
 ---
 
 ## Symptoms

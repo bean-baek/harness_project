@@ -7,6 +7,8 @@ severity: high
 status: resolved
 component: web_target/src/routes.ts
 tags: [circularity, integration, e2e, route-table, false-evidence, f-005]
+guard: `cli independence` 가 테스트의 자급을 사실로 보고한다
+exposure: evidence-independence
 ---
 
 ## Symptoms

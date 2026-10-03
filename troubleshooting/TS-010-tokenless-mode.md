@@ -7,6 +7,8 @@ severity: high
 status: resolved
 component: harness/cli.py
 tags: [cost, tokenless, claude-code, skill, enforcement, dependency-isolation]
+guard: 토큰 없는 경로가 표준 라이브러리만 쓴다 — repro_ts010 이 import 를 고정한다
+exposure: tokenless-isolation
 ---
 
 ## Symptoms
