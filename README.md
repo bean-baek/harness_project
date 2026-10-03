@@ -17,7 +17,7 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 | | |
 |---|---|
 | **결과물이다** | `harness/` — 에이전트 실행·검증·측정·중단을 관리하는 운영 계층 |
-| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드 **23건**의 재현·원인·수정·검증 기록 |
+| **결과물이다** | `troubleshooting/` — 실제로 터진 실패 모드의 재현·원인·수정·검증 기록 ([목록](troubleshooting/INDEX.md), [건수](docs/status.md)) |
 | **결과물이 아니다** | `web_target/` — 투두 앱. 하네스를 시험하기 위한 **피험체**이자 벤치마크 과제 |
 
 `web_target` 의 기능 75개(`features.json`)는 목표가 아니라 **측정 수단**이다.
@@ -49,8 +49,8 @@ harness/              운영 계층 — 게이트·측정·런너·검수 (결�
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
   nodes/agents.py     5개 에이전트 노드 (유료 경로)
-verification/         회귀 검증 661건 — 실패 모드 하나당 스크립트 하나
-troubleshooting/      실패 모드 23건 기록 + evidence/ 1차 자료
+verification/         회귀 검증 — 실패 모드 하나당 스크립트 하나
+troubleshooting/      실패 모드 기록 + evidence/ 1차 자료
 web_target/           피험체 투두 앱 (결과물 아님)
 .harness_memory/      Reflexion 1차 자료 — 재생성 불가, 보존
 docs/ scripts/ .claude/skills/harness/
@@ -70,7 +70,7 @@ config.py exit_codes.py main.py night_shift.py
 | 강제 | `python -m harness.cli` (결정론적) | 동일한 게이트 + LangGraph 라우터 |
 | 무인 실행 | 불가 — 사람이 세션을 열어야 한다 | **가능** (`night_shift.py`, 30분 타임아웃) |
 | 의존성 | 표준 라이브러리 + jest | langchain, langgraph, API 키 |
-| 검증 | 회귀 326건 + 실제 jest | **스모크 78건** (LLM 스텁, 토큰 0 — TS-018) |
+| 검증 | 회귀 스크립트 + 실제 jest ([건수](docs/status.md)) | **스모크** (LLM 스텁, 토큰 0 — TS-018) |
 
 **왜 분리했는가**: 코드를 성격별로 세어보니 결정론적 기계(게이트·측정·태그 린터·도구·CLI)
 **2,703줄**은 토큰을 전혀 쓰지 않고, **2,357줄**만이 유료 API를 돌리기 위해 존재한다.
@@ -118,6 +118,7 @@ python -m harness.cli init           # 프로젝트 검수 → .harness.json 생
 python -m harness.cli inspect        # 객관 지표 추출 + 의도가 필요한 항목 분리
 python -m harness.cli deadcode       # 하네스 자기 감사 — 죽은 설정·고아 코드 (TS-019)
 python -m harness.cli independence   # 증거 독립성 — 테스트가 구조를 자급하는가 (TS-020)
+python -m harness.cli status         # 살아 있는 측정값을 docs/status.md 로 생성 (TS-024)
 ```
 
 `verify` / `mark` / `unmark` 는 판정마다 `harness_runtime.log` 에 기록을 남긴다
@@ -305,7 +306,7 @@ python -m harness.cli init --harness-root /path/to/project
 ```
 
 설정 파일이 **없으면 기본값은 외부화 이전의 하드코딩과 같다** — 기존 사용자의 동작은
-변하지 않는다(회귀 236건이 설정 추가 전/후 모두 통과하는 것으로 확인).
+변하지 않는다(당시 회귀 검증 **전부**가 설정 추가 전·후 모두 통과하는 것으로 확인했다).
 
 출력은 값마다 출처를 표시한다. **`기본값`은 "근거 없이 골랐다"는 자백이다** —
 그 줄만 `.harness.json` 에 적어 덮으면 된다.
@@ -416,7 +417,7 @@ python -m harness.cli independence
 ```
 
 빈 칸이 돌연변이라고 생각했지만 아니다. 돌연변이는 **같은 채널의 깊이**를 재고,
-TS-013 이 드러낸 것은 **채널의 독립성**이었다. F-005 는 jest 51/51 녹색에 게이트
+TS-013 이 드러낸 것은 **채널의 독립성**이었다. F-005 는 스위트 전체 녹색에 게이트
 통과였지만 실 브라우저에서 동작하지 않았다 — 테스트가 `<Route path="/dashboard">` 를
 **직접 만들어** 감쌌기 때문이다. 테스트가 검증 대상의 구조를 공급하면 그 구조는
 검증되지 않는다.
@@ -455,15 +456,11 @@ ProtectedRoute.test.tsx  import 없음 + '/', '/dashboard'  → 자급
 | `single-channel` | 채널 1개, 컬렉션 재현 없음 |
 | `self-supplied` | 컬렉션 재현 + 채널 1개 ← **TS-013 의 모양** |
 
-**첫 측정** (통과 기능 6건):
+**현재 등급 분포는 [docs/status.md](docs/status.md)** 에 있다 — 이 산문에 수치를 박아 넣지
+않는 이유는 TS-024 다. 직접 보려면 `cli independence` 를 돌린다.
 
-```
-교차검증 5 · 단일채널 1 · 자급 0
-자급 사건: 컬렉션 재현 1건 · 약한 결합 1건
-
-[단일채널] F-018   단위 1 / E2E 0  ← 교차 확인하는 채널이 없다
-[교차검증] F-005   단위 2 / E2E 1  ← ProtectedRoute.test.tsx 가 /, /dashboard 열거
-```
+첫 측정에서 드러난 것(고정된 사실): `F-018` 은 E2E 가 0건이어서 교차 확인하는 채널이
+없었고, `F-005` 의 `ProtectedRoute.test.tsx` 는 `/`·`/dashboard` 를 손으로 열거했다.
 
 검사기가 **하드코딩 없이 TS-013 의 바로 그 파일을 찾아냈다.**
 
@@ -556,13 +553,10 @@ python -m harness.cli report
 **판별력 원칙** — 모든 입력을 통과시키는 기준은 기준이 아니다. 증거 수준별로 전체 기능을
 판정해 통과율을 센다. LLM 호출이 없어 API 쿼터와 무관하게 재현된다.
 
-| 증거 수준 | 통과 | 통과율 |
-|---|---|---|
-| `suite` (TS-006 동작) | 75 / 75 | **100.0%** |
-| `feature` (기본) | 6 / 75 | 8.0% |
-| `step` (최고 엄격도) | 2 / 75 | 2.7% |
+수준별 통과 수와 판별력은 **[docs/status.md](docs/status.md)** 에 있다 (`cli status` 가 생성).
+여기에 수치를 적지 않는 이유는 TS-024 — 같은 값을 네 번 다르게 발표한 적이 있다.
 
-**판별력 92%** — `suite` 기준이 통과시킨 것 중 대부분은 근거 없는 통과였다.
+**판별력의 의미**: `suite` 기준이 통과시킨 것 중 대부분은 근거 없는 통과였다.
 이 수치는 "게이트가 옳다"는 증명이 아니라 **"게이트를 끈 것과 비교해 실제로 다른 일을
 한다"는 반증 가능한 측정**이다. *(저자 측정, 독립 검증 필요)*
 
@@ -631,11 +625,12 @@ python -m harness.cli report
 
 | 경로 | 추적 | 내용 |
 |---|---|---|
+| `docs/status.md` | O | **생성 파일** — 살아 있는 측정값. `cli status` 가 만들고 CI 가 `--check` 로 어긋남을 차단한다 (TS-024) |
 | `.harness.json` | O | 런너·대상·규약 선언. 없으면 기본값 = 외부화 이전 하드코딩 (TS-017) |
 | `web_target/features.json` | O | 기능 75개 + `passes` + `verification` 증거 — **진실의 원천** |
 | `features.draft.json` | X | `inspect --write-draft` 산출물. **명세가 아니다** — 사람이 옮겨야 효력 |
 | `web_target/src/routes.ts` | O | 보호 경로 목록의 단일 출처 (앱과 테스트가 공유, TS-013) |
-| `troubleshooting/` | O | 실패 모드 23건 + `evidence/` 1차 자료 |
+| `troubleshooting/` | O | 실패 모드 기록 + `evidence/` 1차 자료 (건수는 `docs/status.md`) |
 | `.harness_memory/<session>/` | O | Reflexion 반성 기록. 같은 세션 ID 로 재실행 시 주입된다 |
 | `.claude/skills/harness/` | O | 토큰 없는 모드의 절차 |
 | `harness_runtime.log` | X | 나이트 시프트 출력. `cli report` 의 입력 데이터 |
@@ -644,15 +639,19 @@ python -m harness.cli report
 
 ## 10. 현재 상태
 
+**측정값은 [docs/status.md](docs/status.md) 에 있다** — `cli status` 가 생성하고
+CI 가 `cli status --check` 로 **문서와 실측이 어긋나면 실패**시킨다 (TS-024).
+
+```bash
+python -m harness.cli status          # 재생성
+python -m harness.cli status --check  # 어긋나면 종료 코드 1
 ```
-기능 6/75 통과 — 전부 증거 기록 보유
-jest 51/51 (7 suites) · E2E 14 통과 / 4 보류 / 실패 0
-lint exit 0 · build exit 0 · tsc 오류 0
-하네스 회귀 661건 (verification/repro_ts005/…/023) 전부 통과
-자기 감사: 죽은 설정 0 · 고아 코드 0 · 미사용 임포트 0
-유료 경로 스모크 78건 — LangGraph 그래프를 토큰 0 으로 끝까지 실행
-다른 프로젝트 실측: main_portfolio(Vite, 테스트 0개) 검수 통과 — 막는 사유 3건 정확히 보고
-```
+
+수치가 아니라 **사실**로 적을 수 있는 것:
+
+- 통과한 기능은 전부 증거 기록(`verification` 블록)을 갖는다 — 게이트가 그것을 강제한다
+- 유료 경로는 LLM 스텁으로 그래프를 끝까지 돌리는 스모크 테스트를 갖는다 (TS-018)
+- 다른 프로젝트 실측: `main_portfolio`(Vite, 테스트 0개)에서 막는 사유 3건을 정확히 보고했다
 
 | 기능 | 근거 테스트 | 단계 커버리지 |
 |---|---|---|
@@ -668,26 +667,29 @@ lint exit 0 · build exit 0 · tsc 오류 0
 ### 회귀 검증
 
 ```bash
-python verification/repro_ts005.py   # LLM 오류 분류·백오프·종료 코드      37/37
-python verification/repro_ts006.py   # 증거 게이트 정책                    32/32
-python verification/repro_ts008.py   # 명세-테스트 연결 판정               49/49
-python verification/repro_ts009.py   # 측정 계층 + 종료 상태 기록          36/36
-python verification/repro_ts010.py   # 토큰 없는 모드 의존성 독립          22/22
-python verification/repro_ts015.py   # 실행 기록 + 게이트 판정 집계        29/29
-python verification/repro_ts016.py   # 커버리지 게이트 + 돌연변이 측정      31/31
-python verification/repro_ts017.py   # 설정 외부화·런너 추상화·검수          90/90
-python verification/repro_ts018.py   # 유료 경로 스모크 (LangGraph, 토큰 0)   78/78
-python verification/repro_ts019.py   # 죽은 설정·고아 코드 재발 방지          37/37
-python verification/repro_ts020.py   # 증거 독립성 (자급 판정·채널 수)        50/50
-python verification/repro_ts021.py   # 변이 연산자 + 돌연변이 게이트          58/58
-python verification/repro_ts022.py   # 탐지 범위 (표본·컬렉션 연산자)        68/68
-python verification/repro_ts023.py   # 생존의 의미를 명세로 가린다           44/44
+# 각 스크립트는 통과 건수를 출력하고 실패 시 종료 코드 1 을 돌린다.
+# 건수를 여기 적지 않는 이유: 스크립트가 바뀌면 이 숫자가 조용히 거짓이 된다 (TS-024).
+python verification/repro_ts005.py   # LLM 오류 분류·백오프·종료 코드
+python verification/repro_ts006.py   # 증거 게이트 정책
+python verification/repro_ts008.py   # 명세-테스트 연결 판정
+python verification/repro_ts009.py   # 측정 계층 + 종료 상태 기록
+python verification/repro_ts010.py   # 토큰 없는 모드 의존성 독립
+python verification/repro_ts015.py   # 실행 기록 + 게이트 판정 집계
+python verification/repro_ts016.py   # 커버리지 게이트 + 돌연변이 측정
+python verification/repro_ts017.py   # 설정 외부화·런너 추상화·검수
+python verification/repro_ts018.py   # 유료 경로 스모크 (LangGraph, 토큰 0)
+python verification/repro_ts019.py   # 죽은 설정·고아 코드 재발 방지
+python verification/repro_ts020.py   # 증거 독립성 (자급 판정·채널 수)
+python verification/repro_ts021.py   # 변이 연산자 + 돌연변이 게이트
+python verification/repro_ts022.py   # 탐지 범위 (표본·컬렉션 연산자)
+python verification/repro_ts023.py   # 생존의 의미를 명세로 가린다
+python verification/repro_ts024.py   # 발표된 수치의 드리프트 차단
 
 cd web_target
 npm run lint       # exit 0
 npm run build      # exit 0 — dist/ 생성
-npm test           # 51/51 통과, 커버리지 < 임계 80% 이므로 exit 1
-npm run test:e2e   # exit 0 — 14 통과 / 4 보류
+npm test           # 전부 통과해도 커버리지 임계 미달로 exit 1
+npm run test:e2e   # exit 0 (일부는 test.fixme 로 보류 — §8)
 npx jest . --no-coverage   # 게이트와 같은 기준
 ```
 
@@ -704,7 +706,8 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 - 유료 경로는 **스모크 테스트로 고정했지만**(TS-018) 실제 LLM 과 끝까지 돌린 것은
   2026-04-14 이 마지막이다. 스텁은 배선·라우팅·종료 코드를 보장하고, 프롬프트 품질과
   실제 모델 거동은 보장하지 않는다.
-  남은 커버리지 공백: `tools.py` 15% (도구 12개 중 일부만 실행), `memory.py` 18%.
+  TS-018 시점 측정의 남은 공백: `tools.py` 15%, `memory.py` 18%
+  (현재 값은 `python -m coverage` 로 직접 재야 한다 — 이 수치는 그 시점의 기록이다).
 - Evaluator 의 LLM 채점과 `EVAL_WEIGHTS` / 75점 임계는 **근거 없는 상수**다.
   단, `features.json` 의 플래그는 그 점수에 의존하지 않는다 — 분리되어 있다.
 - 태그된 테스트가 **제대로** 검증하는지는 게이트가 완전히 보지 못한다.
@@ -734,7 +737,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 
 | 잡 | 내용 |
 |---|---|
-| `하네스 검증` | `verification/repro_ts005/…/023` (661건) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `하네스 검증` | `verification/repro_ts005/…/023` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
@@ -767,6 +770,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-021 | 변이 연산자가 테스트를 시험하지 않고 컴파일러를 시험했다 — 190곳 중 3곳만 진짜 비교 |
 | TS-022 | 탐지가 닿지 않는 두 구멍 — 표본은 파일 앞머리만, 연산자는 배열을 못 건드렸다 |
 | TS-023 | 생존한 변이를 '테스트가 약하다'로 읽고 고치려 했다 — 명세가 요구하지 않는 것이었다 |
+| TS-024 | 같은 측정값을 네 번 다르게 발표했다 — 산문의 수치는 측정 코드가 바뀌면 조용히 거짓이 된다 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

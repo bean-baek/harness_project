@@ -17,7 +17,7 @@ trustworthy while nobody is watching.** This repository implements the apparatus
 | | |
 |---|---|
 | **Is the deliverable** | `harness/` — the operating layer that runs, verifies, measures, and halts the agent |
-| **Is the deliverable** | `troubleshooting/` — **23 failure modes** that actually occurred, with reproduction, cause, fix, and verification |
+| **Is the deliverable** | `troubleshooting/` — failure modes that actually occurred, with reproduction, cause, fix, and verification ([list](troubleshooting/INDEX.md), [count](docs/status.md)) |
 | **Is NOT the deliverable** | `web_target/` — a todo app. The **test subject** and benchmark task for the harness |
 
 The 75 features in `web_target` (`features.json`) are not the goal; they are the
@@ -50,8 +50,8 @@ harness/              the operating layer — gate, measurement, runner, inspect
   tags.py metrics.py mutate.py cli.py
   graph.py router.py state.py tools.py prompts.py memory.py llm_errors.py
   nodes/agents.py     the 5 agent nodes (paid path)
-verification/         661 regression checks — one script per failure mode
-troubleshooting/      23 failure-mode records + evidence/ primary sources
+verification/         regression checks — one script per failure mode
+troubleshooting/      failure-mode records + evidence/ primary sources
 web_target/           the test-subject todo app (not the deliverable)
 .harness_memory/      Reflexion primary data — cannot be regenerated, kept
 docs/ scripts/ .claude/skills/harness/
@@ -71,7 +71,7 @@ by relative path ([verification/README.md](verification/README.md)).
 | Enforcement | `python -m harness.cli` (deterministic) | same gate + LangGraph router |
 | Unattended | No — a human must open a session | **Yes** (`night_shift.py`, 30-min timeout) |
 | Dependencies | stdlib + jest | langchain, langgraph, API key |
-| Verification | 326 regression checks + real jest | **78 smoke checks** (stubbed LLM, zero tokens — TS-018) |
+| Verification | regression scripts + real jest ([counts](docs/status.md)) | **smoke checks** (stubbed LLM, zero tokens — TS-018) |
 
 **Why the split**: counting the code by character, the deterministic machinery
 (gate, measurement, tag linter, tools, CLI) is **2,703 lines** that spend no tokens at all,
@@ -122,6 +122,7 @@ python -m harness.cli init           # inspect the project → generate .harness
 python -m harness.cli inspect        # extract objective metrics, separate what needs human intent
 python -m harness.cli deadcode       # self-audit — dead config, orphan code (TS-019)
 python -m harness.cli independence   # evidence independence — does a test supply its own structure (TS-020)
+python -m harness.cli status         # generate live measurements into docs/status.md (TS-024)
 ```
 
 `verify` / `mark` / `unmark` append a record to `harness_runtime.log` on every verdict
@@ -323,8 +324,8 @@ python -m harness.cli init --harness-root /path/to/project
 ```
 
 With **no config file the defaults equal the pre-externalization hardcoding** — existing
-behavior does not change (confirmed: all 236 regression checks pass both with and without
-the config file present).
+behavior does not change (confirmed at the time: **every** regression check passed both with
+and without the config file present).
 
 Output labels the provenance of every value. **`default` is a confession that the value was
 chosen without grounds** — override just that line in `.harness.json`.
@@ -440,7 +441,7 @@ name (TS-008)  →  source executed (TS-016)  →  [empty]
 ```
 
 I had assumed the empty rung was mutation. It wasn't. Mutation measures **depth within one
-channel**; what TS-013 exposed was **channel independence**. F-005 was green at jest 51/51
+channel**; what TS-013 exposed was **channel independence**. F-005 was green across the suite
 and passed the gate, yet did nothing in a real browser — because the test **built
 `<Route path="/dashboard">` itself.** If a test supplies the structure it is verifying,
 that structure goes unverified.
@@ -585,13 +586,12 @@ python -m harness.cli report
 Every feature is judged at each evidence level and the pass rate is counted. No LLM call is
 involved, so it reproduces regardless of API quota.
 
-| Evidence level | Pass | Rate |
-|---|---|---|
-| `suite` (TS-006 behavior) | 75 / 75 | **100.0%** |
-| `feature` (default) | 6 / 75 | 8.0% |
-| `step` (strictest) | 2 / 75 | 2.7% |
+Per-level pass counts and the discrimination figure live in
+**[docs/status.md](docs/status.md)** (written by `cli status`). They are not inlined here —
+the same value was once published four different ways (TS-024).
 
-**Discrimination 92%** — most of what the `suite` criterion let through was an ungrounded pass.
+**What discrimination means**: most of what the `suite` criterion let through was an
+ungrounded pass.
 This number is not proof that the gate is *correct*; it is a **falsifiable measurement that the
 gate does something different from having it switched off.** *(Author-measured; independent
 verification needed.)*
@@ -661,11 +661,12 @@ match the app would be the worst choice**, so the signal was preserved instead (
 
 | Path | Tracked | Contents |
 |---|---|---|
+| `docs/status.md` | Yes | **generated** — live measurements. `cli status` writes it; CI blocks drift with `--check` (TS-024) |
 | `.harness.json` | Yes | runner/target/convention declaration. Absent ⇒ defaults equal pre-externalization hardcoding (TS-017) |
 | `web_target/features.json` | Yes | 75 features + `passes` + `verification` evidence — **the source of truth** |
 | `features.draft.json` | No | output of `inspect --write-draft`. **Not a spec** — a human must move it over |
 | `web_target/src/routes.ts` | Yes | single source of truth for the protected-path list (shared by app and tests, TS-013) |
-| `troubleshooting/` | Yes | 23 failure modes + `evidence/` primary sources |
+| `troubleshooting/` | Yes | failure-mode records + `evidence/` primary sources (count in `docs/status.md`) |
 | `.harness_memory/<session>/` | Yes | Reflexion records. Injected when re-run with the same session ID |
 | `.claude/skills/harness/` | Yes | the tokenless-mode procedure |
 | `harness_runtime.log` | No | night-shift output. Input data for `cli report` |
@@ -674,15 +675,19 @@ match the app would be the worst choice**, so the signal was preserved instead (
 
 ## 10. Current state
 
+**Measurements live in [docs/status.md](docs/status.md)** — written by `cli status`, and CI
+**fails if the document and the measurement disagree** via `cli status --check` (TS-024).
+
+```bash
+python -m harness.cli status          # regenerate
+python -m harness.cli status --check  # exit 1 on drift
 ```
-6/75 features passing — all with recorded evidence
-jest 51/51 (7 suites) · E2E 14 passed / 4 deferred / 0 failed
-lint exit 0 · build exit 0 · 0 tsc errors
-661 harness regression checks (verification/repro_ts005/…/023) all passing
-Self-audit: 0 dead config · 0 orphan code · 0 unused imports
-78 paid-path smoke checks — the LangGraph graph driven end to end with zero tokens
-Measured on another project: main_portfolio (Vite, 0 tests) inspected cleanly — 3 blockers reported accurately
-```
+
+What can be stated as a **fact** rather than a number:
+
+- Every passing feature carries a recorded `verification` block — the gate enforces that
+- The paid path has a smoke test that drives the graph end to end with a stubbed LLM (TS-018)
+- Measured on another project: `main_portfolio` (Vite, 0 tests) reported its 3 blockers accurately
 
 | Feature | Evidence tests | Step coverage |
 |---|---|---|
@@ -698,26 +703,29 @@ At `step` level only F-005 and F-018 pass.
 ### Regression verification
 
 ```bash
-python verification/repro_ts005.py   # LLM error classification, backoff, exit codes   37/37
-python verification/repro_ts006.py   # evidence gate policy                           32/32
-python verification/repro_ts008.py   # spec-to-test linkage verdicts                   49/49
-python verification/repro_ts009.py   # measurement layer + terminal status recording   36/36
-python verification/repro_ts010.py   # tokenless mode dependency isolation            22/22
-python verification/repro_ts015.py   # run records + gate verdict aggregation          29/29
-python verification/repro_ts016.py   # coverage gate + mutation measurement            31/31
-python verification/repro_ts017.py   # config externalization, runner abstraction, inspect   90/90
-python verification/repro_ts018.py   # paid-path smoke (LangGraph, zero tokens)        78/78
-python verification/repro_ts019.py   # dead-config / orphan-code recurrence guard      37/37
-python verification/repro_ts020.py   # evidence independence (self-supply, channels)   50/50
-python verification/repro_ts021.py   # mutation operators + mutation gate              58/58
+# Each script prints its own pass count and exits 1 on failure.
+# Counts are not listed here — they go silently stale when a script changes (TS-024).
+python verification/repro_ts005.py   # LLM error classification, backoff, exit codes
+python verification/repro_ts006.py   # evidence gate policy
+python verification/repro_ts008.py   # spec-to-test linkage verdicts
+python verification/repro_ts009.py   # measurement layer + terminal status recording
+python verification/repro_ts010.py   # tokenless mode dependency isolation
+python verification/repro_ts015.py   # run records + gate verdict aggregation
+python verification/repro_ts016.py   # coverage gate + mutation measurement
+python verification/repro_ts017.py   # config externalization, runner abstraction, inspect
+python verification/repro_ts018.py   # paid-path smoke (LangGraph, zero tokens)
+python verification/repro_ts019.py   # dead-config / orphan-code recurrence guard
+python verification/repro_ts020.py   # evidence independence (self-supply, channels)
+python verification/repro_ts021.py   # mutation operators + mutation gate
 python verification/repro_ts022.py   # detection reach (sampling, collection operator) 68/68
-python verification/repro_ts023.py   # what a surviving mutant means (spec-aware)      44/44
+python verification/repro_ts023.py   # what a surviving mutant means (spec-aware)
+python verification/repro_ts024.py   # blocks drift in published numbers
 
 cd web_target
 npm run lint       # exit 0
 npm run build      # exit 0 — produces dist/
-npm test           # 51/51 pass, but exit 1 because coverage < the 80% threshold
-npm run test:e2e   # exit 0 — 14 passed / 4 deferred
+npm test           # exits 1 on the coverage threshold even when every test passes
+npm run test:e2e   # exit 0 (some are deferred with test.fixme — §8)
 npx jest . --no-coverage   # same criterion the gate uses
 ```
 
@@ -734,7 +742,8 @@ E2E (`*.spec.ts`) is **not counted by the gate** — the gate runs jest only.
 - The paid path is **pinned by a smoke test** (TS-018), but the last end-to-end run against a real
   LLM was 2026-04-14. The stub guarantees wiring, routing, and exit codes; it does not guarantee
   prompt quality or real model behavior.
-  Remaining coverage gaps: `tools.py` 15% (only some of the 12 tools exercised), `memory.py` 18%.
+  Remaining gaps as measured at TS-018: `tools.py` 15%, `memory.py` 18%
+  (re-measure with `python -m coverage`; these are a record of that moment).
 - The Evaluator's LLM grading, `EVAL_WEIGHTS`, and the 75-point threshold are **constants without
   grounds.** The flags in `features.json`, however, do not depend on that score — they are decoupled.
 - Whether a tagged test verifies **properly** is something the gate cannot fully see. Coverage
@@ -766,7 +775,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/023` (661 checks) + `cli deadcode` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/023` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -799,6 +808,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-021 | The mutation operators tested the compiler, not the tests — 3 of 190 match sites were real comparisons |
 | TS-022 | Two holes detection never reached — sampling was pinned to the top of each file, operators could not touch arrays |
 | TS-023 | I read a surviving mutant as "the test is weak" and almost fixed it — the spec never required it |
+| TS-024 | The same measurement was published four different ways — a number in prose goes silently false when the measuring code changes |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

@@ -4,8 +4,10 @@
 # (TS-001 루트 features.json / init.sh 의 PROJECT_ROOT / TS-006 의 run_tests / TS-012 의 3건).
 # CI 는 그 패턴에 대한 기계적 처방이다 — 선언한 모든 명령을 매 푸시마다 실제로 돌린다.
 #
-# 토큰 없는 모드이므로 **API 키 없이 전부 돈다**: 하네스 검증 661건은 LLM 을 스텁으로
+# 토큰 없는 모드이므로 **API 키 없이 전부 돈다**: 하네스 검증은 LLM 을 스텁으로
 # 대체하고, 증거 게이트는 jest 만 쓴다. 비용 0.
+#
+# 건수를 여기 적지 않는 이유는 TS-024 — 스크립트가 늘면 주석이 조용히 거짓이 된다.
 
 name: CI
 
@@ -118,6 +120,16 @@ jobs:
         run: python verification/repro_ts023.py
         env:
           GOOGLE_API_KEY: ""
+
+      - name: TS-024 — 발표된 수치의 드리프트 차단
+        run: python verification/repro_ts024.py
+        env:
+          GOOGLE_API_KEY: ""
+
+      # 생성 파일과 실측이 어긋나면 **문서가 거짓을 말하고 있다**는 뜻이다.
+      # 락파일 검사와 같은 방식이라 오탐이 구조적으로 불가능하다 (TS-024).
+      - name: 측정값 드리프트 검사 (docs/status.md)
+        run: python -m harness.cli status --check
 
       - name: 증거 태그 검사 (존재하지 않는 ID 는 실패)
         run: python -m harness.cli tags

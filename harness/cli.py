@@ -394,6 +394,31 @@ def cmd_inspect(args) -> int:
     return 1 if any(c.auto and c.verdict == "violated" for c in report.checks) else 0
 
 
+def cmd_status(args) -> int:
+    """살아 있는 측정값을 `docs/status.md` 로 생성한다 (TS-024).
+
+    `--check` 는 재생성해 커밋된 내용과 비교하고 다르면 1 을 돌린다.
+    락파일 검사와 같은 방식이라 오탐이 구조적으로 불가능하다 — 같은 입력에서
+    같은 문자열이 나오는지만 본다.
+
+    종료 코드: 0 일치/생성 완료 / 1 어긋남 / 2 측정 실패.
+    """
+    from harness import status as status_mod
+
+    if args.check:
+        matched, diag = status_mod.check(args.project, args.harness_root)
+        if matched:
+            print(f"[일치] {status_mod.STATUS_PATH} 가 현재 측정값과 같습니다.")
+            return 0
+        print(f"[어긋남] {diag}")
+        return 1
+
+    path, text = status_mod.write(args.project, args.harness_root)
+    print(text)
+    print(f"\n  작성: {path}")
+    return 0
+
+
 def cmd_independence(args) -> int:
     """증거가 검증 대상의 구조를 자기가 공급하는지 검사한다 (TS-020).
 
@@ -536,6 +561,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="features.draft.json 에 명세 초안을 쓴다 (명세 아님 — 검토 필요)")
     p.add_argument("--force", action="store_true", help="기존 초안을 덮어쓴다")
     p.set_defaults(func=cmd_inspect)
+
+    p = sub.add_parser("status", parents=[common],
+                       help="살아 있는 측정값을 docs/status.md 로 생성 (--check 로 검증)")
+    p.add_argument("--harness-root", default=".", dest="harness_root")
+    p.add_argument("--check", action="store_true",
+                   help="재생성해 커밋된 내용과 비교 — 다르면 종료 코드 1")
+    p.set_defaults(func=cmd_status)
 
     p = sub.add_parser("independence", parents=[common],
                        help="증거 독립성 — 테스트가 검증 대상 구조를 자기가 공급하는지 (보고만)")
