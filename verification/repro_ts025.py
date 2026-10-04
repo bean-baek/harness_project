@@ -229,16 +229,27 @@ print("\n[11] 언어 지원 표가 생성된 것인가 + 피험체 없는 런너
 from harness.status import language_support
 
 rows = language_support(PROJECT)
-check("모든 런너가 표에 있다", sorted(r["runner"] for r in rows),
-      ["jest", "pytest", "vitest"])
+# 목록을 **얼리지 않는다**. 런너를 추가하면 이 단정이 깨지는데, 그 깨짐은 결함이
+# 아니라 정상이다 (TS-031 에서 `unittest` 를 추가하자 실제로 깨졌다).
+# 고정할 사실은 "표가 `RUNNERS` 와 일치한다"는 **관계**다.
+from harness.runner import RUNNERS
+
+check("표가 등록된 런너와 정확히 일치한다",
+      sorted(r["runner"] for r in rows), sorted(RUNNERS))
 # 피험체가 없는 런너 = 한 번도 검증된 적 없는 모양 (TS-025 의 교훈)
 check("피험체가 없는 런너가 없다", [r["runner"] for r in rows if not r["subject"]], [])
 check("게이트는 모든 런너에서 돈다", all(r["gate"] for r in rows), True)
-
 by_name = {r["runner"]: r for r in rows}
-# 계층 차이를 **사실로** 고정한다 — 이 값이 바뀌면 검증이 알려준다
-check("jest 만 CI 가 런너를 실행한다",
-      sorted(r["runner"] for r in rows if r["runs_in_ci"]), ["jest"])
+# 계층 차이를 **사실로** 고정한다 — 이 값이 바뀌면 검증이 알려준다.
+# 여기서 기록하려는 공백은 "**vitest·pytest 의 실행 계층이 CI 에 없다**"는 것이다
+# (TS-025). 그 둘을 직접 단정한다 — 전체 목록을 얼리면 런너를 추가할 때마다 깨진다.
+check("jest 의 실행 계층은 CI 에 있다", by_name["jest"]["runs_in_ci"], True)
+check("vitest 의 실행 계층은 CI 에 없다 (TS-025 의 공백)",
+      by_name["vitest"]["runs_in_ci"], False)
+check("pytest 의 실행 계층은 CI 에 없다 (TS-025 의 공백)",
+      by_name["pytest"]["runs_in_ci"], False)
+check("실행 계층이 CI 에 있는 런너가 **하나 이상** 있다",
+      any(r["runs_in_ci"] for r in rows), True)
 check("pytest 는 변이 연산자가 0곳 매칭된다 (파이썬에 ===·&& 가 없다)",
       by_name["pytest"]["mutation_hits"], 0)
 check("jest·vitest 는 변이 연산자가 매칭된다",

@@ -38,7 +38,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from harness.project import load
+from harness.project import SKIP_DIRS, load, walk_files
 
 #: 생성 파일 경로 (하네스 루트 기준)
 STATUS_PATH = "docs/status.md"
@@ -162,28 +162,64 @@ def language_support(harness_root: str | Path) -> list[dict[str, Any]]:
     ci = root / ".github" / "workflows" / "ci.yml"
     ci_text = ci.read_text(encoding="utf-8") if ci.is_file() else ""
 
-    # 변이 연산자가 그 언어 문법에 매칭되는가 — 실측한다 (추측하지 않는다)
-    probes = {
-        "jest": "if (a === b && c) { return true; }",
-        "vitest": "if (a === b && c) { return true; }",
-        "pytest": "if a == b and c:\n    return True\n",
-    }
+    # 런너별 피험체 경로 — 확장자와 변이 매칭을 **그 프로젝트의 실제 파일에서** 읽는다
+    subject_dir: dict[str, Path] = {}
+    if subject_runner:
+        subject_dir[subject_runner] = Path(own.target) if Path(own.target).is_absolute() \
+            else (root / own.target)
+    for runner_name, fixture_name in fixtures.items():
+        subject_dir.setdefault(runner_name, fx_dir / fixture_name)
 
     out: list[dict[str, Any]] = []
     for name in sorted(RUNNERS):
-        probe = probes.get(name, "")
-        hits = sum(len(mutate._candidate_lines(probe, pat))
-                   for _rule, pat, _rep in mutate.MUTATIONS) if probe else 0
-        exts = {"jest": ".tsx", "vitest": ".jsx", "pytest": ".py"}.get(name, "")
+        subject_path = subject_dir.get(name)
+        # **하드코딩한 확장자 매핑을 쓰지 않는다** (TS-031). 처음 구현은
+        # `{"jest": ".tsx", ...}` 딕셔너리를 두었고, 거기 없는 런너(`unittest`)는
+        # 모든 계층이 `—` 로 나왔다 — 실제로는 검수·컬렉션이 동작하는데도.
+        # **손으로 적은 표가 조용히 거짓이 되는 것을 막으려고 만든 표 안에서**
+        # 같은 실수를 한 것이다. 피험체의 실제 소스 파일에서 확장자를 읽는다.
+        exts: set[str] = set()
+        hits = 0
+        if subject_path and subject_path.is_dir():
+            cfg_for_subject, _ = (load(subject_path, detect_if_missing=False)
+                                  if (subject_path / ".harness.json").is_file()
+                                  else (own, None))
+            for d in (cfg_for_subject.source_dirs if cfg_for_subject else ["src"]):
+                base = subject_path / d
+                if not base.is_dir():
+                    continue
+                for f in walk_files(base, SKIP_DIRS)[:400]:
+                    if f.suffix not in inspect_mod.SOURCE_EXTS                             and f.suffix not in draft.MARKUP_EXTS:
+                        continue
+                    if cfg_for_subject and cfg_for_subject.is_test_file(f.name):
+                        continue
+                    exts.add(f.suffix)
+                    # 변이 매칭을 **모든 소스 파일에 걸쳐** 센다. 첫 파일 하나만
+                    # 보면 어느 파일이 먼저 정렬되는지에 수치가 달라진다 —
+                    # 손으로 적은 대표 구문만큼이나 임의적이다 (TS-031).
+                    try:
+                        src = f.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        continue
+                    hits += sum(len(mutate._candidate_lines(src, pat))
+                                for _rule, pat, _rep in mutate.MUTATIONS)
         out.append({
             "runner": name,
             "subject": (subject_name if name == subject_runner
                         else fixtures.get(name, "")),
             "gate": True,                                   # 런너 클래스가 있으면 돈다
-            "runs_in_ci": f"npx {name}" in ci_text,
-            "draft": exts in draft.MARKUP_EXTS,
-            "collections": exts in independence._SOURCE_EXTS,
-            "inspect": exts in inspect_mod.SOURCE_EXTS,
+            # CI 가 이 런너를 **실제로 실행**하는가.
+            #
+            # 호출 형태를 추측하지 않는다 (TS-031). 하네스를 통해 돌리면 커맨드에
+            # 런너 이름이 아예 안 나온다(`cli verify`). 그래서 CI 단계가 **선언**한다 —
+            # 단계 이름에 `런너 실행 계층: <런너>` 를 넣으면 그것이 선언이다.
+            # TS 문서의 `exposure:` 와 같은 방식이고, 선언이 없으면 `—` 로 **과소**
+            # 보고한다 (없는 검증을 있다고 말하지 않는다).
+            "runs_in_ci": (f"npx {name}" in ci_text
+                           or f"런너 실행 계층: {name}" in ci_text),
+            "draft": bool(exts & set(draft.MARKUP_EXTS)),
+            "collections": bool(exts & set(independence._SOURCE_EXTS)),
+            "inspect": bool(exts & set(inspect_mod.SOURCE_EXTS)),
             "mutation_hits": hits,
         })
     return out
@@ -250,7 +286,7 @@ def render(data: dict[str, Any]) -> str:
         lines += ["", "## 언어·런너 지원 (TS-030)", "",
                   "계층별로 묶인 정도가 다르다. 게이트는 런너 클래스 하나로 돌고,",
                   "돌연변이는 그 언어의 문법을 알아야 한다. 이 표는 코드에서 읽은 것이다.", "",
-                  "| 런너 | 피험체 | 게이트 | CI 실행 | 검수 | 컬렉션 | 초안 | 변이 |",
+                  "| 런너 | 피험체 | 게이트 | CI 실행 | 검수 | 컬렉션 | 초안 | 줄 변이 |",
                   "|---|---|---|---|---|---|---|---|"]
         for r in langs:
             mark = {True: "O", False: "—"}
@@ -261,8 +297,10 @@ def render(data: dict[str, Any]) -> str:
                 f"| {r['mutation_hits']}곳 |"
             )
         lines += ["",
-                  "`변이` 는 그 언어의 대표 구문 한 줄에 연산자가 매칭되는 **실측 개수**다.",
-                  "0 이면 돌연변이 측정이 그 언어에서 아무것도 하지 않는다.",
+                  "`줄 변이` 는 그 피험체의 **모든 소스 파일**에 줄 변이 연산자가",
+                  "매칭되는 실측 개수다. 0 이면 줄 변이가 그 언어에서 아무것도 하지 않는다 —",
+                  "`===`·`&&` 가 없고 `if` 에 괄호를 쓰지 않는 언어가 그렇다.",
+                  "**컬렉션 멤버 제거 변이는 이 수치와 무관하게 동작한다** (파이썬에서도 된다).",
                   "새 언어를 붙이는 절차: [docs/adding-a-language.md](adding-a-language.md)"]
 
 

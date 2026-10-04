@@ -41,7 +41,7 @@ LLM 에이전트에게 코드를 쓰게 하는 것은 쉽다. 어려운 것은 *
 ```
 harness/              운영 계층 — 게이트·측정·런너·검수 (결과물)
   verify.py           증거 게이트 정책 (단일 소유자)
-  runner.py           생태계에 묶인 전부 — jest·vitest·pytest
+  runner.py           생태계에 묶인 전부 — jest·vitest·pytest·unittest
   project.py          .harness.json 선언 + 프로젝트 검수
   inspect.py          객관 지표(불변식) 추출
   independence.py     증거 독립성 — 테스트가 구조를 자급하는가
@@ -823,6 +823,7 @@ python verification/repro_ts025.py   # 외부 프로젝트 모양 (vitest·pytes
 python verification/repro_ts026.py   # 미실행 줄 변이 차단 + 도달률
 python verification/repro_ts027.py   # 노출 진단 (선언 ↔ 검사기)
 python verification/repro_ts028.py   # 명세 초안 (선언 기반 추출)
+python verification/repro_ts031.py   # 새 런너 (unittest, 실제 실행)
 
 cd web_target
 npm run lint       # exit 0
@@ -887,7 +888,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 
 | 잡 | 내용 |
 |---|---|
-| `하네스 검증` | `verification/repro_ts005/…/028` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `하네스 검증` | `verification/repro_ts005/…/031` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `대상 앱` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (실패 시 리포트 업로드) |
 
@@ -927,6 +928,7 @@ E2E(`*.spec.ts`)는 **게이트에 계수되지 않는다** — 게이트는 jes
 | TS-028 | '명세 초안'이 검수 발견 사항을 기능처럼 포장한 것이었다 — 넷 중 둘은 기능이 아니고 둘은 내용이 없었다 |
 | TS-029 | 오탐이 있는 판정으로 차단하려다 `|| true` 가 붙어 정확한 판정의 차단력까지 잃었다 |
 | TS-030 | 계층별 지원 차이가 보이지 않았고, 도구 만들기를 멈출 사실 판정이 없었다 |
+| TS-031 | 새 언어 체크리스트를 실제로 따라가니 결함 7건이 나왔다 — 그중 하나는 거짓 통과였다 |
 
 전체 목록: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 

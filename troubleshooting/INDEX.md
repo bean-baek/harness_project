@@ -34,3 +34,4 @@ _자동 생성 — `list_troubles` 호출 시 갱신됨._
 | [TS-028](TS-028-draft-was-not-a-spec.md) | resolved | medium | '명세 초안'이 검수 발견 사항을 기능처럼 포장한 것이었다 — 넷 중 둘은 기능이 아니고 둘은 내용이 없었다 | `harness/draft.py`, `harness/inspect.py` |
 | [TS-029](TS-029-blind-check-disabled-a-real-gate.md) | resolved | medium | 오탐이 있는 판정으로 차단하려다 `|| true` 가 붙어 정확한 판정의 차단력까지 잃었다 | `harness/inspect.py`, `.github/workflows/ci.yml` |
 | [TS-030](TS-030-no-stop-rule-and-hidden-layer-gaps.md) | resolved | medium | 계층별 지원 차이가 보이지 않았고, 도구 만들기를 멈출 사실 판정이 없었다 | `harness/status.py`, `harness/exposure.py` |
+| [TS-031](TS-031-following-my-own-checklist.md) | resolved | high | 새 언어 체크리스트를 실제로 따라가니 결함 7건이 나왔다 — 그중 하나는 거짓 통과였다 | `harness/runner.py`, `harness/tags.py`, `harness/inspect.py`, `harness/status.py` |

@@ -347,18 +347,37 @@ def check_route_completeness(root: Path, cfg: ProjectConfig) -> list[Check]:
     return checks
 
 
-#: `from './x'` / `require('./x')` 의 모듈 이름
+#: `from './x'` / `require('./x')` 의 모듈 이름 (JS·TS)
 _IMPORT_SPEC_RE = re.compile(
     r"""from\s+['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]""")
 
+#: 파이썬: `from src.wallet import X` / `import src.wallet` — **따옴표가 없다**
+_PY_IMPORT_RE = re.compile(
+    r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.MULTILINE)
+
 
 def _imported_stems(text: str) -> set[str]:
-    """그 파일이 import 하는 모듈의 파일명(확장자 없이)."""
+    """그 파일이 import 하는 모듈의 파일명(확장자 없이).
+
+    **파이썬 갈래가 필요하다** (TS-031). JS 는 모듈 경로를 따옴표로 싸지만 파이썬은
+    싸지 않는다 — `from src.wallet import convert`. JS 정규식만 쓰면 파이썬 테스트가
+    소스를 import 해도 못 보고, `untested-source` 가 **전부 오탐**이 된다.
+    실측: `unittest` 픽스처에서 "소스 2개 중 2개에 도달하지 않습니다"가 나왔는데
+    테스트는 `src.wallet` 을 import 하고 있었다.
+    """
     out: set[str] = set()
     for m in _IMPORT_SPEC_RE.finditer(text):
         spec = m.group(1) or m.group(2) or ""
         if spec:
             out.add(Path(spec).stem)
+    for m in _PY_IMPORT_RE.finditer(text):
+        dotted = m.group(1) or m.group(2) or ""
+        if dotted:
+            # `src.wallet` → `wallet` (파일명). 패키지 이름도 함께 담아 `src/__init__.py`
+            # 처럼 패키지 자신이 import 되는 경우를 놓치지 않는다.
+            parts = dotted.split(".")
+            out.add(parts[-1])
+            out.update(parts)
     return out
 
 
@@ -378,7 +397,13 @@ def check_untested_sources(root: Path, cfg: ProjectConfig) -> list[Check]:
     # **전이 import 를 따라간다.** 직접 import 만 보면 `App.tsx` 를 테스트가
     # import 하고 `App.tsx` 가 `Layout.tsx` 를 import 할 때 `Layout.tsx` 가
     # 실행되는데도 '미테스트'로 보고된다 — 실측에서 14건 중 2건이 그 오탐이었다.
-    by_stem = {p.stem: p for p in sources}
+    # `__init__.py` 는 **디렉터리 이름**으로 부른다 (TS-031). `from src.wallet import X`
+    # 는 `src` 패키지를 import 하므로 `src/__init__.py` 가 실행된다. 그런데 그 파일의
+    # stem 은 `__init__` 이라 `src` 와 매칭되지 않아 '도달하지 않음'으로 보고됐다.
+    def _key(path: Path) -> str:
+        return path.parent.name if path.name == "__init__.py" else path.stem
+
+    by_stem = {_key(p): p for p in sources}
     reached: set[str] = set()
     frontier: list[str] = []
     for t in tests:
@@ -396,7 +421,7 @@ def check_untested_sources(root: Path, cfg: ProjectConfig) -> list[Check]:
                 reached.add(dep)
                 frontier.append(dep)
 
-    untested = [p for p in sources if p.stem not in reached]
+    untested = [p for p in sources if _key(p) not in reached]
     if not untested:
         return [Check(
             kind="untested-source",

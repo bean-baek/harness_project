@@ -93,14 +93,19 @@ def _kind_of(path: Path, units: tuple[str, ...], e2es: tuple[str, ...]) -> str |
 def _suite_regex(runner: str) -> re.Pattern[str]:
     """`이 블록이 기능을 검증한다`고 주장하는 구문 — 런너별.
 
-    pytest 규약: 기능 ID 는 **클래스 docstring 또는 테스트 함수의 docstring**
-    문자열 리터럴에 넣는다. 함수 이름(`def test_f005_...`)에는 하이픈을 쓸 수 없어
-    `F-005` 형태가 들어가지 않으므로, 이름이 아니라 문자열을 본다.
+    파이썬 계열(`pytest`·`unittest`) 규약: 기능 ID 는 **클래스 docstring 또는 테스트
+    함수의 docstring** 문자열 리터럴에 넣는다. 함수 이름(`def test_f005_...`)에는
+    하이픈을 쓸 수 없어 `F-005` 형태가 들어가지 않으므로, 이름이 아니라 문자열을 본다.
+
+    `unittest` 가 같은 분기를 쓰는 이유는 같은 제약이기 때문이다 (TS-031) —
+    런너는 `shortDescription()`(docstring 첫 줄)을 테스트 이름으로 쓴다.
+    **이 분기는 파이썬 계열에서 선택이 아니라 필수다.** 없으면 스위트 태그를
+    하나도 찾지 못한다.
     """
     cached = _SUITE_RE_BY_RUNNER.get(runner)
     if cached is not None:
         return cached
-    if runner == "pytest":
+    if runner in ("pytest", "unittest"):
         pattern = re.compile(r"(?:^|[\s])class\s+\w+")
     else:
         pattern = re.compile(r"(?:^|[\s.;=(])(?:test\.)?describe(?:\.\w+)?\s*\(")
@@ -121,6 +126,8 @@ def scan_tags(project_root: str, cfg: Any | None = None) -> list[TagRef]:
     e2es = tuple(cfg.e2e_suffixes) or E2E_SUFFIXES
     id_re = id_regex(cfg.id_pattern)
     suite_re = _suite_regex(cfg.runner)
+    #: 파이썬 계열은 스위트 선언과 라벨이 다른 줄에 있다 (`class` → docstring)
+    python_family = cfg.runner in ("pytest", "unittest")
 
     root = Path(project_root).resolve()
     refs: list[TagRef] = []
@@ -137,11 +144,26 @@ def scan_tags(project_root: str, cfg: Any | None = None) -> list[TagRef]:
         except OSError:
             continue
         rel = str(path.relative_to(root)).replace("\\", "/")
+        # 스위트 선언이 몇 번째 줄에 있었나 — 파이썬은 선언과 라벨이 **다른 줄**이다.
+        #
+        #   JS         describe('F-005: …', …)        ← 같은 줄
+        #   파이썬      class ConvertTest(TestCase):   ← 선언
+        #                   """UT-01: …"""             ← 라벨 (다음 줄)
+        #
+        # 같은 줄에서만 찾던 구현은 파이썬 계열에서 `is_suite` 가 **항상 False** 였다
+        # (pytest 픽스처도 0건이었다 — TS-031 에서 실측). 게이트 판정에는 쓰이지 않지만
+        # 필드가 뜻을 주장하면서 조용히 거짓이었다.
+        last_suite_line = -10
         for lineno, line in enumerate(lines, 1):
+            if suite_re.search(line):
+                last_suite_line = lineno
             # 태그는 **문자열 리터럴**(테스트 이름) 안에만 있다.
             # 줄 전체를 스캔했더니 주석에 적은 ID("ARIA 는 F-026 이 다룬다")까지
             # 태그로 집계되었다. 주석은 증거가 아니다.
-            is_suite = bool(suite_re.search(line))
+            #
+            # 파이썬은 선언 **직후 한 줄**까지 스위트로 본다. 더 넓히면 클래스 안의
+            # 첫 테스트 함수 docstring 까지 스위트로 오인한다.
+            is_suite = (lineno - last_suite_line) <= (1 if python_family else 0)
             for lit in _LITERAL_RE.finditer(line):
                 text = lit.group(2)
                 matches = list(id_re.finditer(text))

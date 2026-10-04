@@ -1,0 +1,10 @@
+{
+  "target": ".",
+  "runner": "unittest",
+  "spec": "features.json",
+  "id_pattern": "UT-\\d{2}",
+  "unit_suffixes": ["test_*.py"],
+  "e2e_suffixes": ["*_e2e.py"],
+  "source_dirs": ["src"],
+  "typecheck": []
+}

@@ -49,7 +49,14 @@ class GoRunner(Runner):
     def results(self) -> tuple[Results | None, str]:
         """구조화된 결과 — **개별 테스트 이름과 상태**가 필요하다.
         게이트가 기능 ID 를 인용하는 테스트를 찾기 때문이다 (TS-008).
-        `go test -json` 이 그것을 준다."""
+        `go test -json` 이 그것을 준다.
+
+        **JSON 리포터가 없으면 사람이 읽는 출력을 파싱하지 말 것** (TS-031).
+        `unittest -v` 는 docstring 이 있으면 두 줄로 쪼개고 상태를 둘째 줄에
+        붙인다 — 파싱 규칙이 docstring 유무에 따라 달라진다. 올바른 답은
+        **그 생태계의 API** 를 쓰는 것이다. `unittest.TextTestResult` 를 상속한
+        수집기를 임시 파일로 써서 실행하면 출력 형식에 의존하지 않는다
+        (`runner.py` 의 `_UNITTEST_COLLECTOR` 참고)."""
 
     def coverage(self, test_files, name_pattern) -> tuple[Coverage | None, str]:
         """주어진 테스트만 돌려 **소스별 실행 statement 수 + 실행된 줄 번호**.
@@ -97,6 +104,40 @@ verification/fixtures/go-app/
 런너 식별, 규약 판정, 태그 스캔, 명세 로드.
 
 ---
+
+### 필수 둘을 지킬 때 반드시 밟는 함정 넷 (TS-031 실측)
+
+이 넷은 `unittest` 런너를 실제로 붙이면서 **전부 걸린** 것이다. 어느 하나라도 놓치면
+게이트가 **조용히 틀린 판정**을 낸다 — 거부가 아니라 **거짓 통과**다.
+
+**① `name_pattern` 은 정규식이다.** jest 의 `--testNamePattern` 방언을 따른다.
+`feature_name_pattern("UT-01")` 은 `UT\-01(?![0-9])` 를 돌려준다. 문자열 포함으로
+비교하면 절대 맞지 않고, 그러면 테스트 0개가 선택되어 **모듈 import 만의 커버리지가
+증거로 계수된다.**
+
+**② 범위는 이름이 아니라 파일로도 좁혀야 한다.** 이름 패턴만 쓰면 다른 테스트 파일이
+전부 import 되어 모듈 수준 코드가 커버리지에 섞인다 (TS-016 의 함정 2). 런너가
+파일 경로를 받지 않으면 변환이 필요하다 — `unittest` 는 **점 표기 모듈 이름**만 받으므로
+`tests/test_conv.py` → `tests.test_conv` 로 바꿔야 한다.
+
+**③ 수집기를 임시 파일로 실행하면 `sys.path` 가 달라진다.** `python <script>` 는
+**스크립트의 디렉터리**를 `sys.path[0]` 에 넣는다 — 대상 프로젝트가 아니다. 그래서
+모듈 import 가 실패하고 unittest 는 `_FailedTest` 를 만든다. 그 가짜 테스트의 이름에는
+기능 ID 가 없어 필터가 전부 걸러내고, **남은 커버리지는 import 뿐**이 된다.
+수집기 안에서 `sys.path.insert(0, os.getcwd())` 를 해야 한다.
+
+**④ 패턴이 하나도 못 맞추면 '통과'가 아니라 '측정 실패'다.** 빈 스위트는
+`wasSuccessful()` 이 True 다. 그대로 두면 돌연변이가 "변이를 잡지 못했다"(생존)로
+세어 점수를 왜곡한다. `run_scoped` 는 그 경우 **`None`** 을 돌려줘야 한다 (TS-016).
+
+세 번째와 네 번째는 **파이썬 계열에만** 해당하지만, ①②는 어느 생태계든 같다.
+
+### 파이썬 계열은 태그 규약이 **선택이 아니다**
+
+파이썬 식별자에 하이픈을 쓸 수 없으므로 `def test_UT-01_...` 은 문법 오류다. 그래서
+기능 ID 를 **docstring** 에 넣고, 런너는 `shortDescription()` 을 테스트 이름으로 쓴다.
+`tags.py` 의 `_suite_regex` 에도 그 런너의 분기가 필요하다 — 아래 "선택"에 있지만
+파이썬 계열에서는 **필수**다.
 
 ## 선택 — 원하면 넓힌다
 
@@ -150,12 +191,19 @@ for name, pat, _ in MUTATIONS:
 ## 붙인 뒤 확인
 
 ```bash
-python -m harness.cli inspect --project ./your-app    # 붙을 수 있는가
-python -m harness.cli exposure --project ./your-app   # 어떤 실패 모드에 노출됐는가
-python -m harness.cli status                          # 지원 표 재생성
-python verification/repro_ts025.py                    # 픽스처 정적 검사
-python -m harness.cli exposure                        # 선언/검사기 일치 (종료 코드 1 이면 어긋남)
+# 주의: `inspect` 는 `--harness-root` 를 받는다 (`--project` 가 아니다).
+# 설정이 프로젝트 자신에 있는 자립 프로젝트는 그 경로를 harness-root 로 준다.
+python -m harness.cli inspect  --harness-root ./your-app   # 붙을 수 있는가
+python -m harness.cli exposure --project ./your-app        # 어떤 실패 모드에 노출됐는가
+python -m harness.cli verify <기능ID> --project ./your-app  # 게이트가 실제로 도는가
+python -m harness.cli status                               # 지원 표 재생성
+python verification/repro_ts025.py                         # 픽스처 정적 검사
+python -m harness.cli exposure                             # 선언/검사기 일치
 ```
+
+**세 번째 줄이 가장 중요하다.** `inspect` 가 "붙을 수 있다"고 말해도 게이트가 실제로
+도는지는 다른 질문이다 — `unittest` 런너를 붙일 때 검수는 통과했는데 범위 제한이
+깨져 **모듈 import 만의 커버리지가 증거로 계수**되고 있었다 (TS-031).
 
 `cli exposure` 가 **"이 런너는 검증된 적 없다"** 고 말해주는 것이 핵심이다.
 정적 계층만 픽스처가 있고 런너 실행 계층은 CI 에 없으면 그렇게 적힌다 — 그 공백을

@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -617,12 +618,336 @@ class PytestRunner(Runner):
         return Coverage(per_file, line_map)
 
 
+# ── Python stdlib ────────────────────────────────────────────────────────────
+
+#: `unittest` 결과를 JSON 으로 받는 수집기. 임시 파일로 써서 실행한다.
+#:
+#: **왜 `-v` 출력을 파싱하지 않는가 — 실측 (TS-031):**
+#:
+#:   docstring 이 있으면 unittest 는 **두 줄로** 쪼개고 상태를 둘째 줄에 붙인다.
+#:     test_ut01_1_x (tests.test_conv.ConvertTest)
+#:     UT-01.1: 선언된 통화는 전부 변환된다 ... ok
+#:   docstring 이 없으면 한 줄이다.
+#:     test_ut02_1_y (tests.test_conv.Demo) ... skipped '일부러'
+#:
+#:   즉 파싱 규칙이 **docstring 유무에 따라 달라진다.** 정규식으로 다루면
+#:   TS-021 의 함정(출력 형식을 시험하는 코드)에 그대로 들어간다.
+#:
+#: stdlib 에 JSON 리포터가 없을 때의 올바른 답은 **그 생태계의 API 를 쓰는 것**이다.
+#: `unittest.TextTestResult` 를 상속해 수집하면 형식에 의존하지 않는다 — jest 의
+#: `--json` 과 같은 수준의 구조화된 결과다.
+#:
+#: 테스트 이름은 `shortDescription()`(docstring 첫 줄)을 쓴다. 파이썬 식별자에는
+#: 하이픈을 쓸 수 없어 함수 이름에 `UT-01` 이 들어가지 않기 때문이다 — pytest 와
+#: 같은 이유다. docstring 이 없으면 점 표기 id 로 떨어지고, 그 이름에는 기능 ID 가
+#: 없으므로 **증거로 계수되지 않는다.** 그것이 맞는 동작이다 (태그 없는 테스트).
+_UNITTEST_COLLECTOR = '''
+import json, os, re, sys, unittest
+
+
+class _JsonResult(unittest.TextTestResult):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.rows = []
+
+    def _label(self, test):
+        return test.shortDescription() or test.id()
+
+    def addSuccess(self, t):
+        super().addSuccess(t); self.rows.append([self._label(t), "passed"])
+
+    def addFailure(self, t, e):
+        super().addFailure(t, e); self.rows.append([self._label(t), "failed"])
+
+    def addError(self, t, e):
+        super().addError(t, e); self.rows.append([self._label(t), "failed"])
+
+    def addSkip(self, t, r):
+        super().addSkip(t, r); self.rows.append([self._label(t), "skipped"])
+
+    def addExpectedFailure(self, t, e):
+        super().addExpectedFailure(t, e); self.rows.append([self._label(t), "skipped"])
+
+    def addUnexpectedSuccess(self, t):
+        super().addUnexpectedSuccess(t); self.rows.append([self._label(t), "failed"])
+
+
+def _label_of(test):
+    return test.shortDescription() or test.id()
+
+
+def _flatten(suite):
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            yield from _flatten(item)
+        else:
+            yield item
+
+
+# **cwd 를 sys.path 에 넣는다** (TS-031). 이 수집기는 임시 디렉터리에 쓰여 실행되므로
+# `python <script>` 는 **스크립트의 디렉터리**를 sys.path[0] 에 넣는다 — 대상 프로젝트가
+# 아니다. 그래서 `loadTestsFromNames(["tests.test_wallet"])` 가 import 에 실패하고
+# unittest 는 `_FailedTest` 를 만든다. 그 가짜 테스트의 이름에는 기능 ID 가 없으므로
+# 패턴 필터가 전부 걸러내고, 남은 커버리지는 **모듈 import 뿐**이 된다.
+# `discover` 는 `top_level_dir` 을 sys.path 에 넣어 주므로 그 경로만 우연히 동작했다.
+sys.path.insert(0, os.getcwd())
+
+out_path = sys.argv[1]
+start = sys.argv[2]
+pattern = sys.argv[3] if len(sys.argv) > 3 else ""
+modules = sys.argv[4:]
+
+loader = unittest.TestLoader()
+if modules:
+    suite = loader.loadTestsFromNames(modules)
+else:
+    suite = loader.discover(start, top_level_dir=".")
+
+# **`loader.testNamePatterns` 를 쓰지 않는다** (TS-031).
+#
+# 그것은 **메서드 이름**에 매칭된다. 파이썬 식별자에는 하이픈을 쓸 수 없으므로
+# `def test_UT-01_...` 이 불가능하고, 하네스가 보는 테스트 이름은 docstring 이다.
+# 그래서 `testNamePatterns = ["*UT-01*"]` 는 **모든 테스트를 걸러냈고**, 남은 것은
+# 모듈 import 뿐이라 커버리지 4줄이 나왔다 — 그 4줄이 '증거'로 계수되어 게이트가
+# 통과했다. TS-016 이 막은 '아무것도 실행하지 않는 증거'가 새 런너에서 되살아난 것이다.
+#
+# 필터는 **하네스가 쓰는 이름(라벨)** 기준이어야 한다. 그 정의가 이 수집기 안에
+# 있으므로 여기서 거른다.
+selected = -1
+if pattern:
+    # `name_pattern` 은 **정규식**이다 — jest 의 `--testNamePattern` 방언을 따른다.
+    # `feature_name_pattern("UT-01")` 은 `UT\-01(?![0-9])` 를 돌려준다. 문자열
+    # 포함으로 비교하면 절대 맞지 않고, 그 결과 테스트 0개가 선택되어
+    # **모듈 import 만의 커버리지가 증거로 계수된다** (TS-031 에서 실측).
+    rx = re.compile(pattern)
+    picked = [t for t in _flatten(suite) if rx.search(_label_of(t))]
+    selected = len(picked)
+    suite = unittest.TestSuite(picked)
+
+sink = open(os.devnull, "w", encoding="utf-8")
+res = unittest.TextTestRunner(resultclass=_JsonResult, verbosity=0, stream=sink).run(suite)
+sink.close()
+with open(out_path, "w", encoding="utf-8") as fh:
+    json.dump({"total": res.testsRun, "rows": res.rows,
+               "selected": selected,
+               "failed": len(res.failures) + len(res.errors)}, fh, ensure_ascii=False)
+
+# 패턴이 **하나도 못 맞췄으면 측정 실패**다 (TS-016·TS-031). 빈 스위트는
+# `wasSuccessful()` 이 True 이므로 그대로 두면 "테스트가 전부 통과했다"로 읽힌다.
+# 돌연변이에서는 그것이 '변이를 잡지 못했다'(생존)로 계수되어 점수를 왜곡한다.
+# 종료 코드 3 으로 구분해 호출자가 '실패'와 '대상 없음'을 가릴 수 있게 한다.
+if selected == 0:
+    sys.exit(3)
+sys.exit(0 if res.wasSuccessful() else 1)
+'''
+
+
+class UnittestRunner(PytestRunner):
+    """파이썬 **표준 라이브러리** `unittest`. 설치가 필요 없다 (TS-031).
+
+    `PytestRunner` 를 상속하는 이유는 하나다 — 커버리지 JSON 파싱(`_parse_coverage`)이
+    **완전히 같다.** `coverage.py` 와 `pytest-cov` 가 같은 모양을 내기 때문이다
+    (실측: `files: {path: {executed_lines, missing_lines, summary}}`). 그 외는 전부
+    재정의한다.
+
+    이 런너가 중요한 이유: **설치 0으로 런너 실행 계층을 CI 에서 돌릴 수 있는 유일한
+    파이썬 경로**다. TS-025·TS-030 이 "jest 만 실행 계층이 CI 에 있다"를 공백으로
+    기록했고, 이것이 그 공백을 메운다.
+
+    커버리지는 `coverage` 패키지가 필요하다 — 대상 프로젝트의 도구이지 하네스의
+    의존성이 아니다(pytest-cov 와 같은 위치). 없으면 측정 실패를 반환하고 게이트가
+    **거부**한다. 진단이 설치 방법을 알려준다.
+    """
+
+    name = "unittest"
+
+    #: 테스트를 찾을 시작 디렉터리 후보. 선언된 것이 없으면 순서대로 시도한다.
+    _discover_dirs = ("tests", "test", ".")
+
+    def launcher(self) -> list[str] | None:
+        """stdlib 이므로 **파이썬만 있으면 된다.**
+
+        다른 런너와 달리 '선언됐으나 미설치' 상태가 존재하지 않는다 —
+        `docs/adding-a-language.md` 의 예시가 그 경우를 다루지 않았다 (TS-031).
+        """
+        python = shutil.which("python") or shutil.which("python3") or sys.executable
+        return [python, "-m", "unittest"] if python else None
+
+    def available(self) -> tuple[bool, str]:
+        if self.launcher() is None:
+            return False, "[오류] 파이썬 실행 파일을 찾을 수 없습니다."
+        return True, ""
+
+    # ── 경로 ↔ 모듈 이름 ────────────────────────────────────────────────────
+
+    def _start_dir(self) -> str:
+        """테스트를 찾을 디렉터리. 없는 것을 넘기면 discover 가 바로 실패한다."""
+        for d in self._discover_dirs:
+            if (self.target / d).is_dir():
+                return d
+        return "."
+
+    def _module_of(self, test_file: str) -> str:
+        """`tests/test_conv.py` → `tests.test_conv`.
+
+        `unittest` 는 **점 표기 모듈 이름**만 받는다 (파일 경로를 받지 않는다).
+        `docs/adding-a-language.md` 가 이 변환을 언급하지 않았다 (TS-031).
+
+        범위를 파일로 제한하는 것은 선택이 아니다 — 이름 패턴만 쓰면 다른 테스트
+        파일도 전부 import 되어 모듈 수준 코드가 커버리지에 섞인다 (TS-016 의 함정 2).
+        """
+        rel = test_file.replace("\\", "/")
+        if rel.endswith(".py"):
+            rel = rel[:-3]
+        return rel.strip("/").replace("/", ".")
+
+    # ── 네 가지 연산 ────────────────────────────────────────────────────────
+
+    def run_all(self, path: str = ".", coverage: bool = False) -> tuple[int | None, str]:
+        launcher = self.launcher()
+        if launcher is None:
+            return None, self.available()[1]
+        start = self._start_dir() if path in (".", "") else path
+        args = [*launcher, "discover", "-s", start, "-t", "."]
+        if not coverage:
+            return self._run(args)
+        cov = self._coverage_cmd()
+        if cov is None:
+            return None, self._coverage_missing()
+        return self._run([*cov, "run", *self._source_args(), "-m", "unittest",
+                          "discover", "-s", start, "-t", "."])
+
+    def results(self) -> tuple[Results | None, str]:
+        """수집기를 임시 파일로 써서 실행하고 JSON 을 읽는다.
+
+        테스트가 실패해도 JSON 을 쓴다(종료 코드만 1) — 실패 내역 자체가 판정에
+        필요한 증거이므로 종료 코드와 무관하게 파일을 읽는다 (jest 경로와 같다).
+        """
+        launcher = self.launcher()
+        if launcher is None:
+            return None, self.available()[1]
+        python = launcher[0]
+
+        tmp_dir = tempfile.mkdtemp(prefix="harness-unittest-")
+        script = Path(tmp_dir) / "collect.py"
+        out_path = Path(tmp_dir) / "results.json"
+        try:
+            script.write_text(_UNITTEST_COLLECTOR, encoding="utf-8")
+            code, output = self._run([python, str(script), str(out_path),
+                                      self._start_dir(), ""])
+            if not out_path.is_file():
+                return None, ("[오류] unittest 결과 JSON 이 생성되지 않았습니다.\n"
+                              + (output or "")[-800:])
+            data = json.loads(out_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return None, f"[오류] unittest 결과 수집 실패: {exc}"
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        rows = [(str(n), str(s)) for n, s in (data.get("rows") or [])]
+        total = int(data.get("total", 0))
+        failed = int(data.get("failed", 0))
+        return Results(
+            total=total,
+            passed=sum(1 for _n, s in rows if s == "passed"),
+            failed=failed,
+            # unittest 는 '스위트' 개념을 노출하지 않는다. 파일 단위로 센다 —
+            # 없는 수치를 만들어내지 않고, 실패가 있으면 1 로 둔다.
+            suites_total=1,
+            suites_failed=1 if failed else 0,
+            assertions=rows,
+        ), ""
+
+    def coverage(self, test_files: list[str], name_pattern: str
+                 ) -> tuple[Coverage | None, str]:
+        """주어진 테스트 **파일과 이름**으로 범위를 좁혀 커버리지를 측정한다.
+
+        파일까지 좁히는 이유는 TS-016 의 함정 2 — 이름 패턴만 쓰면 다른 테스트
+        파일이 전부 import 되어 모듈 수준 코드가 커버리지에 섞인다.
+        """
+        launcher = self.launcher()
+        if launcher is None:
+            return None, self.available()[1]
+        if not test_files:
+            return None, "[오류] 태그가 있는 테스트 파일이 없습니다."
+        cov = self._coverage_cmd()
+        if cov is None:
+            return None, self._coverage_missing()
+
+        modules = [self._module_of(f) for f in test_files]
+        tmp_dir = tempfile.mkdtemp(prefix="harness-unittest-cov-")
+        script = Path(tmp_dir) / "collect.py"
+        out_json = Path(tmp_dir) / "cov.json"
+        data_file = Path(tmp_dir) / ".coverage"
+        try:
+            script.write_text(_UNITTEST_COLLECTOR, encoding="utf-8")
+            env_args = ["--data-file", str(data_file)]
+            self._run([*cov, "run", *env_args, *self._source_args(), str(script),
+                       str(Path(tmp_dir) / "res.json"), self._start_dir(),
+                       name_pattern, *modules])
+            code, output = self._run([*cov, "json", *env_args, "-o", str(out_json)])
+            if not out_json.is_file():
+                return None, ("[오류] 커버리지 JSON 이 생성되지 않았습니다.\n"
+                              + (output or "")[-600:])
+            data = json.loads(out_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return None, f"[오류] 커버리지 측정 실패: {exc}"
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # 파싱은 pytest 와 **완전히 같다** — coverage.py 와 pytest-cov 가 같은 모양을 낸다
+        return self._parse_coverage(data), ""
+
+    def run_scoped(self, test_files: list[str], name_pattern: str
+                   ) -> tuple[int | None, str]:
+        launcher = self.launcher()
+        if launcher is None:
+            return None, self.available()[1]
+        python = launcher[0]
+        modules = [self._module_of(f) for f in test_files]
+        tmp_dir = tempfile.mkdtemp(prefix="harness-unittest-scoped-")
+        script = Path(tmp_dir) / "collect.py"
+        try:
+            script.write_text(_UNITTEST_COLLECTOR, encoding="utf-8")
+            code, output = self._run([python, str(script),
+                                      str(Path(tmp_dir) / "r.json"),
+                                      self._start_dir(), name_pattern, *modules])
+            if code == 3:
+                # 패턴이 하나도 못 맞췄다 — **측정 실패**이지 '통과'가 아니다.
+                # None 을 돌려주면 돌연변이가 '잡지 못했다'(생존)로 센다. 과소평가는
+                # 안전한 방향이다 — 점수를 좋게 보이게 만들지 않는다 (TS-026 의 규칙).
+                return None, (f"[오류] 이름 패턴 {name_pattern!r} 에 맞는 테스트가 "
+                              f"없습니다 (모듈: {', '.join(modules)}). "
+                              "측정 실패는 통과가 아닙니다.")
+            return code, output
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # ── coverage 패키지 ─────────────────────────────────────────────────────
+
+    def _coverage_cmd(self) -> list[str] | None:
+        python = shutil.which("python") or shutil.which("python3") or sys.executable
+        if not python:
+            return None
+        code, _ = self._run([python, "-m", "coverage", "--version"], timeout=30)
+        return [python, "-m", "coverage"] if code == 0 else None
+
+    def _coverage_missing(self) -> str:
+        return ("[오류] `coverage` 패키지가 없어 커버리지를 측정할 수 없습니다. "
+                "`pip install coverage` 로 설치하십시오. 측정 실패는 통과가 "
+                "아니므로 게이트가 거부합니다 (TS-016).")
+
+    def _source_args(self) -> list[str]:
+        dirs = [d for d in self.cfg.source_dirs if (self.target / d).is_dir()]
+        return [f"--source={','.join(dirs)}"] if dirs else []
+
+
 # ── 선택 ─────────────────────────────────────────────────────────────────────
 
 RUNNERS: dict[str, type[Runner]] = {
     "jest": JestRunner,
     "vitest": VitestRunner,
     "pytest": PytestRunner,
+    "unittest": UnittestRunner,
 }
 
 

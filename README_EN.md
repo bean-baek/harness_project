@@ -42,7 +42,7 @@ one question: **"does this failure teach the harness anything?"** (§8)
 ```
 harness/              the operating layer — gate, measurement, runner, inspection (the deliverable)
   verify.py           evidence gate policy (single owner)
-  runner.py           everything tied to an ecosystem — jest, vitest, pytest
+  runner.py           everything tied to an ecosystem — jest, vitest, pytest, unittest
   project.py          .harness.json declaration + project inspection
   inspect.py          objective metric (invariant) extraction
   independence.py     evidence independence — does a test supply its own structure
@@ -727,6 +727,7 @@ python verification/repro_ts025.py   # foreign project shapes (vitest / pytest f
 python verification/repro_ts026.py   # no mutation on unexecuted lines + reach reporting
 python verification/repro_ts027.py   # exposure diagnosis (declaration <-> checker)
 python verification/repro_ts028.py   # spec draft from declarations
+python verification/repro_ts031.py   # new runner (unittest, really runs it)
 
 cd web_target
 npm run lint       # exit 0
@@ -794,7 +795,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 
 | Job | Contents |
 |---|---|
-| `harness` | `verification/repro_ts005/…/028` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
+| `harness` | `verification/repro_ts005/…/031` + `cli deadcode` + `cli status --check` + `cli tags` + `cli independence` + `cli inspect` + `cli audit` + `cli report` |
 | `target app` | `tsc --noEmit` · `npm run lint` · `npm run build` · `npx jest . --no-coverage` |
 | `E2E` | `npx playwright install chromium webkit` + `npm run test:e2e` (uploads the report on failure) |
 
@@ -834,6 +835,7 @@ persists because nobody ran it." Tokenless mode means **it all runs with no API 
 | TS-028 | The "spec draft" was inspection findings dressed as features — two of four were not features and two had no content |
 | TS-029 | A check with known blind spots sat in the blocking slot, so `|| true` was added — and that disabled the accurate checks along with it |
 | TS-030 | Per-layer support gaps were invisible, and there was no factual rule for when to stop building the instrument |
+| TS-031 | Following my own new-language checklist surfaced seven defects — one of them a false pass |
 
 Full list: [troubleshooting/INDEX.md](troubleshooting/INDEX.md)
 
